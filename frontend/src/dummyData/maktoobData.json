@@ -1,0 +1,144 @@
+{
+  "maktoobData": [
+    {
+      "company_id": "COMP-001",
+      "company_name": "Advanced Technology Company",
+      "maktoobs": [
+        {
+          "id": 1,
+          "maktoob_number": "MKT-001-2024",
+          "date": "2024-01-15",
+          "subject": "Business Registration Approval",
+          "type": "Registration",
+          "status": "Completed",
+          "priority": "High",
+          "description": "Initial business registration and licensing documents"
+        },
+        {
+          "id": 2,
+          "maktoob_number": "MKT-002-2024",
+          "date": "2024-01-20",
+          "subject": "Tax Compliance Submission",
+          "type": "Tax",
+          "status": "In Progress",
+          "priority": "High",
+          "description": "Quarterly tax compliance documentation"
+        },
+        {
+          "id": 3,
+          "maktoob_number": "MKT-003-2024",
+          "date": "2024-02-01",
+          "subject": "Employee Certification",
+          "type": "HR",
+          "status": "Pending",
+          "priority": "Medium",
+          "description": "Employee training and certification records"
+        }
+      ]
+    },
+    {
+      "company_id": "COMP-002",
+      "company_name": "Modern Construction Foundation",
+      "maktoobs": [
+        {
+          "id": 1,
+          "maktoob_number": "MKT-CON-001",
+          "date": "2024-01-10",
+          "subject": "Construction Permit Application",
+          "type": "Permit",
+          "status": "Completed",
+          "priority": "High",
+          "description": "New construction site permit application"
+        },
+        {
+          "id": 2,
+          "maktoob_number": "MKT-CON-002",
+          "date": "2024-01-25",
+          "subject": "Safety Compliance Report",
+          "type": "Safety",
+          "status": "Completed",
+          "priority": "High",
+          "description": "Monthly safety and compliance reporting"
+        }
+      ]
+    },
+    {
+      "company_id": "COMP-003",
+      "company_name": "Fast Transport Company",
+      "maktoobs": [
+        {
+          "id": 1,
+          "maktoob_number": "MKT-TRANS-001",
+          "date": "2024-01-05",
+          "subject": "Vehicle Registration",
+          "type": "Registration",
+          "status": "Completed",
+          "priority": "Medium",
+          "description": "New vehicle fleet registration"
+        },
+        {
+          "id": 2,
+          "maktoob_number": "MKT-TRANS-002",
+          "date": "2024-01-18",
+          "subject": "Route Permission Application",
+          "type": "Permit",
+          "status": "In Progress",
+          "priority": "High",
+          "description": "New transportation route permissions"
+        },
+        {
+          "id": 3,
+          "maktoob_number": "MKT-TRANS-003",
+          "date": "2024-02-05",
+          "subject": "Insurance Renewal",
+          "type": "Insurance",
+          "status": "Pending",
+          "priority": "High",
+          "description": "Annual insurance policy renewal"
+        }
+      ]
+    },
+    {
+      "company_id": "COMP-004",
+      "company_name": "Software Solutions Company",
+      "maktoobs": [
+        {
+          "id": 1,
+          "maktoob_number": "MKT-SOFT-001",
+          "date": "2024-01-12",
+          "subject": "Software License Application",
+          "type": "License",
+          "status": "Completed",
+          "priority": "High",
+          "description": "Commercial software licensing"
+        }
+      ]
+    },
+    {
+      "company_id": "COMP-005",
+      "company_name": "Integrated Services Company",
+      "maktoobs": [
+        {
+          "id": 1,
+          "maktoob_number": "MKT-SERV-001",
+          "date": "2024-01-08",
+          "subject": "Service Certification",
+          "type": "Certification",
+          "status": "Completed",
+          "priority": "High",
+          "description": "Service quality certification"
+        },
+        {
+          "id": 2,
+          "maktoob_number": "MKT-SERV-002",
+          "date": "2024-01-22",
+          "subject": "Client Contract Approval",
+          "type": "Contract",
+          "status": "In Progress",
+          "priority": "Medium",
+          "description": "Major client contract documentation"
+        }
+      ]
+    }
+  ]
+}
