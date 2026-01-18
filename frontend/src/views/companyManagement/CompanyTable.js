@@ -2,17 +2,9 @@
 import { useState, Fragment, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
-// ** Import Data from JSON file
-import {
-  getCompanies,
-  getCompanyFilters,
-  addCompany,
-  updateCompany,
-  deleteCompany,
-} from "../../dummyData/companyData";
-
-// ** Import AddNewCompany Component (Now used for both Add and Edit)
+// ** Import AddNewCompany Component
 import AddNewCompany from "./addCompany/AddNewCompany";
 
 // ** Third Party Components
@@ -26,10 +18,12 @@ import {
   Trash2,
   FileText,
   ShoppingCart,
-  Truck,
+  Truck, // Added Truck icon for vehicles
 } from "react-feather";
 import DataTable from "react-data-table-component";
 import Flatpickr from "react-flatpickr";
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 // ** Reactstrap Imports
 import {
@@ -49,10 +43,20 @@ import {
   ModalFooter,
   Alert,
   Badge,
+  Spinner,
 } from "reactstrap";
 
 // ** Styles
 import "@styles/react/libs/flatpickr/flatpickr.scss";
+
+// ** API Base URL
+const API_URL = "http://127.0.0.1:8000/test1";
+
+// ** Status mapping
+const statusMap = {
+  1: "Active",
+  2: "Inactive",
+};
 
 const CompanyTable = () => {
   const { t } = useTranslation();
@@ -60,142 +64,104 @@ const CompanyTable = () => {
 
   // ** States
   const [searchCompanyName, setSearchCompanyName] = useState("");
-  const [searchCompanyId, setSearchCompanyId] = useState("");
   const [searchLeaderName, setSearchLeaderName] = useState("");
   const [searchPhone, setSearchPhone] = useState("");
-  const [searchCopmany_type, setSearchCopmany_type] = useState("");
+  const [searchCompanyType, setSearchCompanyType] = useState("");
   const [searchTIN, setSearchTIN] = useState("");
-  const [searchLicence, setSearchLicence] = useState("");
-  const [searchState, setSearchState] = useState("");
+  const [searchStatus, setSearchStatus] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
-  const [dateRange, setDateRange] = useState("");
+  const [dateRange, setDateRange] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [companies, setCompanies] = useState([]);
-  const [Filters, setFilters] = useState({});
   const [filterOpen, setFilterOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // ** Modal States
   const [addCompanyModal, setAddCompanyModal] = useState(false);
   const [editCompanyModal, setEditCompanyModal] = useState(false);
   const [deleteModal, setDeleteModal] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState(null);
-  const [alert, setAlert] = useState({ show: false, type: "", message: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ** Main filter function
-  const applyFilters = () => {
-    let updatedData = companies;
-
-    // Filter by company name
-    if (searchCompanyName) {
-      updatedData = updatedData.filter((item) =>
-        item.company_name
-          .toLowerCase()
-          .includes(searchCompanyName.toLowerCase())
-      );
+  // ** Fetch companies from API
+  const fetchCompanies = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/companies/`);
+      const companiesData = response.data.results || response.data;
+      setCompanies(companiesData);
+      setFilteredData(companiesData);
+    } catch (error) {
+      console.error("Error fetching companies:", error);
+    } finally {
+      setLoading(false);
     }
-
-    // Filter by company ID
-    if (searchCompanyId) {
-      updatedData = updatedData.filter((item) =>
-        item.company_id.toLowerCase().includes(searchCompanyId.toLowerCase())
-      );
-    }
-
-    // Filter by leader name
-    if (searchLeaderName) {
-      updatedData = updatedData.filter((item) =>
-        item.leader_name.toLowerCase().includes(searchLeaderName.toLowerCase())
-      );
-    }
-
-    // Filter by phone
-    if (searchPhone) {
-      updatedData = updatedData.filter((item) =>
-        item.phone.toLowerCase().includes(searchPhone.toLowerCase())
-      );
-    }
-
-    // Filter by company_type
-    if (searchCopmany_type) {
-      updatedData = updatedData.filter((item) =>
-        item.company_type
-          .toLowerCase()
-          .includes(searchCopmany_type.toLowerCase())
-      );
-    }
-
-    // Filter by TIN number
-    if (searchTIN) {
-      updatedData = updatedData.filter((item) =>
-        item.TIN_number.toLowerCase().includes(searchTIN.toLowerCase())
-      );
-    }
-
-    // Filter by licence number
-    if (searchLicence) {
-      updatedData = updatedData.filter((item) =>
-        item.licence_number.toLowerCase().includes(searchLicence.toLowerCase())
-      );
-    }
-
-    // Filter by state
-    if (searchState) {
-      updatedData = updatedData.filter((item) => {
-        if (!item.state) return false;
-        return item.state.toLowerCase() === searchState.toLowerCase();
-      });
-    }
-
-    // Filter by date range
-    if (dateRange && dateRange.length === 2) {
-      const [startDate, endDate] = dateRange;
-      updatedData = updatedData.filter((item) => {
-        const itemDate = new Date(item.registration_date);
-        return itemDate >= startDate && itemDate <= endDate;
-      });
-    }
-
-    setFilteredData(updatedData);
   };
 
-  // ** Initialize data from JSON file
+  // ** Initialize data
   useEffect(() => {
-    const loadData = () => {
-      const companiesData = getCompanies();
-      const filtersData = getCompanyFilters();
-      setCompanies(companiesData);
-      setFilters(filtersData);
-    };
-
-    loadData();
+    fetchCompanies();
   }, []);
 
-  // ** Apply filters automatically when search criteria or companies change
+  // ** Apply filters when search criteria change
   useEffect(() => {
-    applyFilters();
+    let data = companies;
+
+    if (searchCompanyName) {
+      data = data.filter((company) =>
+        company.company_name.toLowerCase().includes(searchCompanyName.toLowerCase())
+      );
+    }
+
+    if (searchLeaderName) {
+      data = data.filter((company) =>
+        company.leader_name.toLowerCase().includes(searchLeaderName.toLowerCase())
+      );
+    }
+
+    if (searchPhone) {
+      data = data.filter((company) =>
+        company.phone.includes(searchPhone)
+      );
+    }
+
+    if (searchCompanyType) {
+      data = data.filter((company) =>
+        company.company_type.toLowerCase().includes(searchCompanyType.toLowerCase())
+      );
+    }
+
+    if (searchTIN) {
+      data = data.filter((company) =>
+        company.TIN_number.toLowerCase().includes(searchTIN.toLowerCase())
+      );
+    }
+
+    if (searchStatus) {
+      data = data.filter((company) => Number(company.status) === Number(searchStatus));
+    }
+
+    if (dateRange.length === 2) {
+      const [start, end] = dateRange;
+      data = data.filter((company) => {
+        const createDate = new Date(company.create_at);
+        return createDate >= start && createDate <= end;
+      });
+    }
+
+    setFilteredData(data);
   }, [
     searchCompanyName,
-    searchCompanyId,
     searchLeaderName,
     searchPhone,
-    searchCopmany_type,
+    searchCompanyType,
     searchTIN,
-    searchLicence,
-    searchState,
+    searchStatus,
     dateRange,
     companies,
   ]);
 
-  // ** Show Alert
-  const showAlert = (type, message) => {
-    setAlert({ show: true, type, message });
-    setTimeout(() => {
-      setAlert({ show: false, type: "", message: "" });
-    }, 3000);
-  };
-
-  // ** Handle Edit Click - Open Edit Modal
+  // ** Handle Edit Click
   const handleEdit = (company) => {
     setSelectedCompany(company);
     setEditCompanyModal(true);
@@ -203,49 +169,66 @@ const CompanyTable = () => {
 
   // ** Handle Delete Click
   const handleDeleteClick = (companyId) => {
-    setSelectedCompany(
-      companies.find((company) => company.company_id === companyId)
-    );
+    const company = companies.find((c) => c.id === companyId);
+    setSelectedCompany(company);
     setDeleteModal(true);
   };
 
   // ** Handle Delete Confirmation
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (selectedCompany) {
-      const updatedCompanies = deleteCompany(selectedCompany.company_id);
-      setCompanies(updatedCompanies);
-      setDeleteModal(false);
-      setSelectedCompany(null);
-      showAlert("success", "Company deleted successfully!");
+      try {
+        await axios.delete(`${API_URL}/companies/${selectedCompany.id}/`);
+        toast.success("Company deleted successfully!");
+        fetchCompanies(); // Refresh the list
+        setDeleteModal(false);
+        setSelectedCompany(null);
+      } catch (error) {
+        console.error("Error deleting company:", error);
+        toast.error("Failed to delete company");
+      }
     }
   };
 
-  // ** Handle Maktoob Button Click
-  const handleMaktoobClick = (company) => {
-    navigate("/maktoob", {
-      state: {
-        company,
-        fromCompany: true,
-      },
-    });
-    showAlert("info", `Redirecting to Maktoob for ${company.company_name}`);
-  };
+// ** Handle Maktoob Button Click
+const handleMaktoobClick = (company) => {
+  navigate("/maktoob", {
+    state: {
+      company,
+      fromCompany: true,
+    },
+  });
+  toast.info(`Redirecting to Maktoob for ${company.company_name}`);
+};
 
-  // ** Handle Khosh Kharid Button Click - UPDATED TO NAVIGATE TO CONTRACT SALES
-  const handleKhoshKharidClick = (company) => {
-    console.log("Navigating to contract sales with company:", company);
+// ** Handle Khosh Kharid Button Click
+const handleKhoshKharidClick = (company) => {
+  console.log("Navigating to contract sales with company:", company);
+  navigate("/contract-sales", {
+    state: {
+      company,
+      fromCompany: true,
+    },
+  });
+  toast.info(`Redirecting to Contract/Sales for ${company.company_name}`);
+};
 
-    navigate("/contract-sales", {
-      state: {
-        company,
-        fromCompany: true,
+// ** Handle View Vehicles Button Click
+// ** Handle View Vehicles Button Click - UPDATE THIS
+const handleViewVehiclesClick = (company) => {
+  navigate("/vehicles", {
+    state: {
+      company: {
+        id: company.id,
+        company_name: company.company_name,
+        // Include other necessary fields
       },
-    });
-    showAlert(
-      "info",
-      `Redirecting to Contract/Sales for ${company.company_name}`
-    );
-  };
+      fromCompany: true,
+    },
+  });
+  toast.info(`Viewing vehicles for ${company.company_name}`);
+};
+
   // ** Close All Modals
   const closeModals = () => {
     setAddCompanyModal(false);
@@ -256,99 +239,93 @@ const CompanyTable = () => {
   };
 
   // ** Handle Add Company Submission
-  const handleAddCompany = (companyData) => {
+  const handleAddCompany = async (companyData) => {
     setIsSubmitting(true);
+    
+    try {
+      // Format data for Django backend
+      const formattedData = {
+        company_name: companyData.companyName,
+        leader_name: companyData.leaderName,
+        phone: companyData.phone,
+        company_type: companyData.companyType,
+        TIN_number: companyData.TIN,
+        status: companyData.status === "active" ? 1 : 2,
+        create_at: companyData.registrationDate || new Date().toISOString().split('T')[0],
+        update_at: new Date().toISOString().split('T')[0],
+      };
 
-    // Add company_id for new companies
-    const newCompanyData = {
-      ...companyData,
-      company_id: `COMP${String(companies.length + 1).padStart(3, "0")}`,
-    };
-
-    console.log("Adding new company:", newCompanyData);
-
-    // Simulate API call delay
-    setTimeout(() => {
-      const updatedCompanies = addCompany(newCompanyData);
-      setCompanies(updatedCompanies);
-      setAddCompanyModal(false);
+      const response = await axios.post(`${API_URL}/companies/`, formattedData);
+      
+      if (response.status === 201) {
+        toast.success("Company added successfully!");
+        setAddCompanyModal(false);
+        fetchCompanies(); // Refresh the list
+      }
+    } catch (error) {
+      console.error("Error adding company:", error);
+      toast.error(error.response?.data?.message || "Failed to add company");
+    } finally {
       setIsSubmitting(false);
-      showAlert("success", "Company added successfully!");
-    }, 1000);
+    }
   };
 
   // ** Handle Edit Company Submission
-  const handleEditCompany = (companyData) => {
+  const handleEditCompany = async (companyData) => {
     setIsSubmitting(true);
+    
+    try {
+      // Format data for Django backend
+      const formattedData = {
+        company_name: companyData.companyName,
+        leader_name: companyData.leaderName,
+        phone: companyData.phone,
+        company_type: companyData.companyType,
+        TIN_number: companyData.TIN,
+        status: companyData.status === "active" ? 1 : 2,
+        update_at: new Date().toISOString().split('T')[0],
+      };
 
-    console.log("Editing company ID:", selectedCompany?.company_id);
-    console.log("New company data:", companyData);
-
-    // Simulate API call delay
-    setTimeout(() => {
-      if (selectedCompany) {
-        const updatedCompanies = updateCompany(
-          selectedCompany.company_id,
-          companyData
-        );
-        console.log("Updated companies list:", updatedCompanies);
-        setCompanies(updatedCompanies);
+      const response = await axios.put(
+        `${API_URL}/companies/${selectedCompany.id}/`,
+        formattedData
+      );
+      
+      if (response.status === 200) {
+        toast.success("Company updated successfully!");
         setEditCompanyModal(false);
         setSelectedCompany(null);
-        setIsSubmitting(false);
-        showAlert("success", "Company updated successfully!");
-      } else {
-        setIsSubmitting(false);
-        showAlert("error", "No company selected for editing");
+        fetchCompanies(); // Refresh the list
       }
-    }, 1000);
+    } catch (error) {
+      console.error("Error updating company:", error);
+      toast.error(error.response?.data?.message || "Failed to update company");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // ** Helper function for status badges
-  const getStatusBadge = (state) => {
-    if (!state) return "secondary";
-
-    const stateLower = state.toLowerCase();
-    switch (stateLower) {
-      case "active":
-        return "success";
-      case "inactive":
-        return "danger";
-      case "tamded":
-        return "warning";
-      case "pending":
-        return "info";
-      default:
-        return "secondary";
-    }
+  const getStatusBadge = (status) => {
+    if (status === 1 || status === "1") return "success";
+    if (status === 2 || status === "2") return "secondary";
+    return "secondary";
   };
 
-  // ** Helper function to get state display text
-  const getStateDisplayText = (state) => {
-    if (!state) return state;
-
-    const stateLower = state.toLowerCase();
-    switch (stateLower) {
-      case "active":
-        return t("active") || "Active";
-      case "inactive":
-        return t("inactive") || "Inactive";
-      case "tamded":
-        return t("tamded") || "Tamded";
-      case "pending":
-        return t("pending") || "Pending";
-      default:
-        return state;
-    }
+  // ** Helper function to get status display text
+  const getStatusDisplayText = (status) => {
+    if (status === 1 || status === "1") return t("active") || "Active";
+    if (status === 2 || status === "2") return t("inactive") || "Inactive";
+    return "Unknown";
   };
 
   // ** Company columns configuration
   const columns = [
     {
       name: t("id") || "ID",
-      selector: (row) => row.company_id,
+      selector: (row) => row.id,
       sortable: true,
-      width: "100px",
+      width: "70px",
     },
     {
       name: t("company_name") || "Company Name",
@@ -366,10 +343,10 @@ const CompanyTable = () => {
       name: t("phone") || "Phone",
       selector: (row) => row.phone,
       sortable: true,
-      width: "130px",
+      width: "120px",
     },
     {
-      name: t("company_type") || "company_type",
+      name: t("company_type") || "Company Type",
       selector: (row) => row.company_type,
       sortable: true,
       width: "120px",
@@ -381,20 +358,14 @@ const CompanyTable = () => {
       width: "130px",
     },
     {
-      name: t("licence_number") || "Licence Number",
-      selector: (row) => row.licence_number,
+      name: t("status") || "Status",
+      selector: (row) => getStatusDisplayText(row.status),
       sortable: true,
-      width: "140px",
-    },
-    {
-      name: t("state") || "State",
-      selector: (row) => row.state,
-      sortable: true,
-      width: "120px",
+      width: "100px",
       cell: (row) => {
-        const stateValue = row.state;
-        const badgeColor = getStatusBadge(stateValue);
-        const displayText = getStateDisplayText(stateValue);
+        const statusValue = row.status;
+        const badgeColor = getStatusBadge(statusValue);
+        const displayText = getStatusDisplayText(statusValue);
 
         return (
           <Badge color={badgeColor} className="text-capitalize">
@@ -405,9 +376,25 @@ const CompanyTable = () => {
     },
     {
       name: t("registration_date") || "Date",
-      selector: (row) => row.registration_date,
+      selector: (row) => row.create_at,
       sortable: true,
-      width: "120px",
+      width: "110px",
+    },
+    {
+      name: t("vehicles") || "Vehicles",
+      width: "100px",
+      center: true,
+      cell: (row) => (
+        <Button
+          color="primary"
+          size="sm"
+          onClick={() => handleViewVehiclesClick(row)}
+          className="btn-icon"
+          title={t("view_vehicles") || "View Vehicles"}
+        >
+          <Truck size={12} /> {/* Changed to Truck icon */}
+        </Button>
+      ),
     },
     {
       name: t("maktoob") || "Maktoob",
@@ -426,7 +413,7 @@ const CompanyTable = () => {
       ),
     },
     {
-      name: t("contract_info") || "Khosh Kharid",
+      name: t("contract_info") || "Contract/Sales",
       width: "120px",
       center: true,
       cell: (row) => (
@@ -435,7 +422,7 @@ const CompanyTable = () => {
           size="sm"
           onClick={() => handleKhoshKharidClick(row)}
           className="btn-icon"
-          title={t("contract_info") || "Khosh Kharid"}
+          title={t("contract_info") || "Contract/Sales"}
         >
           <ShoppingCart size={12} />
         </Button>
@@ -458,7 +445,7 @@ const CompanyTable = () => {
           <Button
             color="danger"
             size="sm"
-            onClick={() => handleDeleteClick(row.company_id)}
+            onClick={() => handleDeleteClick(row.id)}
             className="btn-icon"
             title={t("delete") || "Delete"}
           >
@@ -472,39 +459,18 @@ const CompanyTable = () => {
   // ** Function to handle Pagination
   const handlePagination = (page) => setCurrentPage(page.selected);
 
-  // ** Table data to render
-  const dataToRender = () => {
-    if (
-      searchCompanyName.length ||
-      searchCompanyId.length ||
-      searchLeaderName.length ||
-      searchPhone.length ||
-      searchCopmany_type.length ||
-      searchTIN.length ||
-      searchLicence.length ||
-      searchState.length ||
-      dateRange.length
-    ) {
-      return filteredData;
-    } else {
-      return companies;
-    }
-  };
-
   // ** Toggle Filter Section
   const toggleFilter = () => setFilterOpen(!filterOpen);
 
   // ** Clear All Filters
   const clearFilters = () => {
     setSearchCompanyName("");
-    setSearchCompanyId("");
     setSearchLeaderName("");
     setSearchPhone("");
-    setSearchCopmany_type("");
+    setSearchCompanyType("");
     setSearchTIN("");
-    setSearchLicence("");
-    setSearchState("");
-    setDateRange("");
+    setSearchStatus("");
+    setDateRange([]);
   };
 
   // ** Handle Add Company Button Click
@@ -516,8 +482,8 @@ const CompanyTable = () => {
       previousLabel={""}
       nextLabel={""}
       forcePage={currentPage}
-      onPageChange={(page) => handlePagination(page)}
-      pageCount={Math.ceil(dataToRender().length / 7) || 1}
+      onPageChange={handlePagination}
+      pageCount={Math.ceil(filteredData.length / 7) || 1}
       breakLabel={"..."}
       pageRangeDisplayed={2}
       marginPagesDisplayed={2}
@@ -538,16 +504,8 @@ const CompanyTable = () => {
 
   return (
     <Fragment>
-      {/* Alert */}
-      {alert.show && (
-        <Alert
-          color={alert.type === "success" ? "success" : "danger"}
-          className="mb-2"
-        >
-          {alert.message}
-        </Alert>
-      )}
-
+      <ToastContainer position="top-right" autoClose={3000} />
+      
       <Card>
         <CardHeader className="border-bottom">
           <div className="d-flex justify-content-between align-items-center">
@@ -593,17 +551,7 @@ const CompanyTable = () => {
                   onChange={(e) => setSearchCompanyName(e.target.value)}
                 />
               </Col>
-              <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="companyId">
-                  {t("id") || "ID"}:
-                </Label>
-                <Input
-                  id="companyId"
-                  placeholder={t("filter_by_id") || "Filter by ID"}
-                  value={searchCompanyId}
-                  onChange={(e) => setSearchCompanyId(e.target.value)}
-                />
-              </Col>
+              
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="leaderName">
                   {t("leader_name") || "Leader Name"}:
@@ -615,6 +563,7 @@ const CompanyTable = () => {
                   onChange={(e) => setSearchLeaderName(e.target.value)}
                 />
               </Col>
+              
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="phone">
                   {t("phone") || "Phone"}:
@@ -626,19 +575,21 @@ const CompanyTable = () => {
                   onChange={(e) => setSearchPhone(e.target.value)}
                 />
               </Col>
+              
               <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="company_type">
-                  {t("company_type") || "company_type"}:
+                <Label className="form-label" htmlFor="companyType">
+                  {t("company_type") || "Company Type"}:
                 </Label>
                 <Input
-                  id="copmany_type"
+                  id="companyType"
                   placeholder={
-                    t("filter_by_copmany_type") || "Filter by copmany_type"
+                    t("filter_by_company_type") || "Filter by Company Type"
                   }
-                  value={searchCopmany_type}
-                  onChange={(e) => setSearchCopmany_type(e.target.value)}
+                  value={searchCompanyType}
+                  onChange={(e) => setSearchCompanyType(e.target.value)}
                 />
               </Col>
+              
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="TIN">
                   {t("TIN_number") || "TIN Number"}:
@@ -650,36 +601,23 @@ const CompanyTable = () => {
                   onChange={(e) => setSearchTIN(e.target.value)}
                 />
               </Col>
+              
               <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="licence">
-                  {t("licence_number") || "Licence Number"}:
-                </Label>
-                <Input
-                  id="licence"
-                  placeholder={t("filter_by_licence") || "Filter by Licence"}
-                  value={searchLicence}
-                  onChange={(e) => setSearchLicence(e.target.value)}
-                />
-              </Col>
-              <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="state">
-                  {t("state") || "State"}:
+                <Label className="form-label" htmlFor="status">
+                  {t("status") || "Status"}:
                 </Label>
                 <Input
                   type="select"
-                  id="state"
-                  value={searchState}
-                  onChange={(e) => setSearchState(e.target.value)}
+                  id="status"
+                  value={searchStatus}
+                  onChange={(e) => setSearchStatus(e.target.value)}
                 >
-                  <option value="">{t("all_states") || "All States"}</option>
-                  <option value="active">{t("active") || "Active"}</option>
-                  <option value="inactive">
-                    {t("inactive") || "Inactive"}
-                  </option>
-                  <option value="tamded">{t("tamded") || "Tamded"}</option>
-                  <option value="pending">{t("pending") || "Pending"}</option>
+                  <option value="">{t("all_status") || "All Status"}</option>
+                  <option value="1">{t("active") || "Active"}</option>
+                  <option value="2">{t("inactive") || "Inactive"}</option>
                 </Input>
               </Col>
+              
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="date">
                   {t("registration_date") || "Date"}:
@@ -692,6 +630,7 @@ const CompanyTable = () => {
                   onChange={(date) => setDateRange(date)}
                 />
               </Col>
+              
               <Col
                 lg="12"
                 className="mb-1 d-flex align-items-end justify-content-end"
@@ -703,7 +642,7 @@ const CompanyTable = () => {
                 >
                   {t("clear_filters") || "Clear Filters"}
                 </Button>
-                <Button color="primary" onClick={applyFilters}>
+                <Button color="primary" onClick={() => {}}>
                   {t("apply_filters") || "Apply Filters"}
                 </Button>
               </Col>
@@ -712,19 +651,28 @@ const CompanyTable = () => {
         </Collapse>
 
         {/* Data Table */}
-        <div className="react-dataTable">
-          <DataTable
-            noHeader
-            pagination
-            columns={columns}
-            paginationPerPage={7}
-            className="react-dataTable"
-            sortIcon={<ChevronDown size={10} />}
-            paginationDefaultPage={currentPage + 1}
-            paginationComponent={CustomPagination}
-            data={dataToRender()}
-          />
-        </div>
+        <CardBody>
+          {loading ? (
+            <div className="text-center py-5">
+              <Spinner color="primary" />
+              <p className="mt-2">Loading companies...</p>
+            </div>
+          ) : (
+            <div className="react-dataTable">
+              <DataTable
+                noHeader
+                pagination
+                columns={columns}
+                paginationPerPage={7}
+                className="react-dataTable"
+                sortIcon={<ChevronDown size={10} />}
+                paginationDefaultPage={currentPage + 1}
+                paginationComponent={CustomPagination}
+                data={filteredData}
+              />
+            </div>
+          )}
+        </CardBody>
       </Card>
 
       {/* Add Company Modal */}
@@ -745,7 +693,7 @@ const CompanyTable = () => {
       {/* Edit Company Modal */}
       <Modal isOpen={editCompanyModal} toggle={closeModals} size="lg">
         <ModalHeader toggle={closeModals}>
-          {t("edit_company") || "Edit Company"} - {selectedCompany?.company_id}
+          {t("edit_company") || "Edit Company"} - {selectedCompany?.company_name}
         </ModalHeader>
         <ModalBody>
           <AddNewCompany
@@ -773,7 +721,7 @@ const CompanyTable = () => {
               <strong>{selectedCompany.company_name}</strong>
               <br />
               <small className="text-muted">
-                ID: {selectedCompany.company_id}
+                TIN: {selectedCompany.TIN_number}
               </small>
             </div>
           )}

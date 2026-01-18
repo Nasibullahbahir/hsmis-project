@@ -2,18 +2,7 @@
 import { useState, Fragment, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-
-// ** Import Car Data and Functions
-import {
-  getCars,
-  getCarFilters,
-  getCarsByCompany,
-  addCar,
-  updateCar,
-  deleteCar,
-  carColumns,
-  carSearchFilters,
-} from "../../dummyData/carData.js";
+import axios from "axios";
 
 // ** Third Party Components
 import Flatpickr from "react-flatpickr";
@@ -28,6 +17,8 @@ import {
   Edit,
 } from "react-feather";
 import DataTable from "react-data-table-component";
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 // ** Reactstrap Imports
 import {
@@ -47,6 +38,7 @@ import {
   Alert,
   Badge,
   Collapse,
+  Spinner,
 } from "reactstrap";
 
 // ** Import AddCar Component
@@ -54,6 +46,15 @@ import AddCar from "./addCar/AddCar.js";
 
 // ** Styles
 import "@styles/react/libs/flatpickr/flatpickr.scss";
+
+// ** API Base URL
+const API_URL = "http://127.0.0.1:8000/test1";
+
+// ** Status mapping
+const statusMap = {
+  1: "Active",
+  2: "Inactive",
+};
 
 const CarTable = () => {
   const { t } = useTranslation();
@@ -64,101 +65,206 @@ const CarTable = () => {
   const { company, fromCompany } = location.state || {};
 
   // ** States
-  const [searchCarNumber, setSearchCarNumber] = useState("");
   const [searchCarName, setSearchCarName] = useState("");
   const [searchPlateNumber, setSearchPlateNumber] = useState("");
   const [searchDriverName, setSearchDriverName] = useState("");
   const [searchCompanyName, setSearchCompanyName] = useState("");
   const [searchStatus, setSearchStatus] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
-  const [dateRange, setDateRange] = useState("");
+  const [dateRange, setDateRange] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [cars, setCars] = useState([]);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [vehicleTypes, setVehicleTypes] = useState([]);
 
   // ** Modal States
   const [addCarModal, setAddCarModal] = useState(false);
   const [editCarModal, setEditCarModal] = useState(false);
   const [deleteModal, setDeleteModal] = useState(false);
   const [selectedCar, setSelectedCar] = useState(null);
-  const [alert, setAlert] = useState({ show: false, type: "", message: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ** Main filter function
-  const applyFilters = () => {
-    let updatedData = cars;
+  // ** Fetch cars from API - FIXED for ManyToMany relationship
+  const fetchCars = async () => {
+    setLoading(true);
+    try {
+      let carsData = [];
+      
+      console.log("Fetching vehicles for company ID:", company?.id, "Name:", company?.company_name);
+      
+      if (fromCompany && company) {
+        // **METHOD 1: Get company with its vehicles (ManyToMany)**
+        try {
+          console.log("Trying to get company with vehicles...");
+          
+          // First, get the company details with its vehicles
+          const companyResponse = await axios.get(`${API_URL}/companies/${company.id}/`);
+          const companyData = companyResponse.data;
+          
+          console.log("Company data received:", companyData);
+          
+          // Check if vehicles are included in the company response
+          if (companyData.vehicle && Array.isArray(companyData.vehicle)) {
+            // vehicles are returned as an array of IDs
+            console.log(`Company has ${companyData.vehicle.length} vehicle IDs:`, companyData.vehicle);
+            
+            // Fetch details for each vehicle
+            const vehiclePromises = companyData.vehicle.map(vehicleId => 
+              axios.get(`${API_URL}/vehicle/${vehicleId}/`)
+            );
+            
+            const vehicleResponses = await Promise.all(vehiclePromises);
+            carsData = vehicleResponses.map(response => response.data);
+            
+            console.log(`Fetched ${carsData.length} vehicle details`);
+          } else if (companyData.vehicles && Array.isArray(companyData.vehicles)) {
+            // vehicles might be returned as full objects
+            carsData = companyData.vehicles;
+            console.log(`Company has ${carsData.length} vehicle objects directly`);
+          }
+        } catch (companyError) {
+          console.log("Method 1 failed:", companyError.message);
+          
+          // **METHOD 2: Filter vehicles by company ID**
+          try {
+            console.log("Trying to filter vehicles by company...");
+            
+            // Since it's ManyToMany, try filtering vehicles that have this company
+            const response = await axios.get(`${API_URL}/vehicle/`);
+            const allVehicles = response.data.results || response.data;
+            console.log(`Total vehicles in system: ${allVehicles.length}`);
+            
+            if (allVehicles.length > 0) {
+              // Check the structure of first vehicle
+              console.log("First vehicle structure:", allVehicles[0]);
+              
+              // **IMPORTANT: Vehicles don't have company field directly**
+              // We need to check if company is in the vehicle's companies field
+              carsData = allVehicles.filter(vehicle => {
+                // Check if vehicle has companies field (ManyToMany from Vehicle side)
+                if (vehicle.companies && Array.isArray(vehicle.companies)) {
+                  // If companies is array of IDs
+                  const hasCompany = vehicle.companies.some(comp => {
+                    if (typeof comp === 'object') {
+                      return comp.id === company.id;
+                    } else {
+                      return parseInt(comp) === parseInt(company.id);
+                    }
+                  });
+                  return hasCompany;
+                }
+                return false;
+              });
+              
+              console.log(`Found ${carsData.length} vehicles for company ${company.id}`);
+            }
+          } catch (allError) {
+            console.error("Method 2 failed:", allError);
+            throw new Error("Cannot fetch vehicles");
+          }
+        }
+      } else {
+        // Not from company - fetch all vehicles
+        console.log("Fetching ALL vehicles (not filtered by company)");
+        const response = await axios.get(`${API_URL}/vehicle/`);
+        carsData = response.data.results || response.data;
+      }
+      
+      // **Set the filtered data**
+      setCars(carsData);
+      setFilteredData(carsData);
+      
+      // **Show appropriate toast message**
+      // if (fromCompany && company) {
+      //   if (carsData.length === 0) {
+      //     toast.warning(`No vehicles found for ${company.company_name}`);
+      //   } else {
+      //     toast.success(`Found ${carsData.length} vehicles for ${company.company_name}`);
+      //   }
+      // } else {
+      //   toast.success(`Loaded ${carsData.length} vehicles`);
+      // }
+      
+    } catch (error) {
+      console.error("Error fetching cars:", error);
+      toast.error("Failed to load vehicles");
+      setCars([]);
+      setFilteredData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Filter by car name
+  // ** Fetch vehicle types for dropdown
+  const fetchVehicleTypes = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/vehicletype/`);
+      setVehicleTypes(response.data.results || response.data);
+    } catch (error) {
+      console.error("Error fetching vehicle types:", error);
+      toast.error("Failed to load vehicle types");
+    }
+  };
+
+  // ** Initialize data - Refetch when company changes
+  useEffect(() => {
+    console.log("CarTable useEffect triggered. Company:", company?.id, "fromCompany:", fromCompany);
+    fetchCars();
+    fetchVehicleTypes();
+  }, [company, fromCompany]);
+
+  // ** Apply filters when search criteria change
+  useEffect(() => {
+    let data = cars;
+
     if (searchCarName) {
-      updatedData = updatedData.filter((item) =>
-        item.car_name.toLowerCase().includes(searchCarName.toLowerCase())
+      data = data.filter((c) =>
+        c.car_name.toLowerCase().includes(searchCarName.toLowerCase())
       );
     }
 
-    // Filter by plate number
     if (searchPlateNumber) {
-      updatedData = updatedData.filter((item) =>
-        item.plate_number
-          .toLowerCase()
-          .includes(searchPlateNumber.toLowerCase())
+      data = data.filter((c) =>
+        c.plate_number.toLowerCase().includes(searchPlateNumber.toLowerCase())
       );
     }
 
-    // Filter by driver name
     if (searchDriverName) {
-      updatedData = updatedData.filter((item) =>
-        item.driver_name.toLowerCase().includes(searchDriverName.toLowerCase())
+      data = data.filter((c) =>
+        c.driver_name.toLowerCase().includes(searchDriverName.toLowerCase())
       );
     }
 
-    // Filter by company name (only if not filtered by company already)
+    // Don't show company filter when viewing specific company
     if (searchCompanyName && !fromCompany) {
-      updatedData = updatedData.filter((item) =>
-        item.company_name
-          .toLowerCase()
-          .includes(searchCompanyName.toLowerCase())
-      );
-    }
-
-    // Filter by status
-    if (searchStatus) {
-      updatedData = updatedData.filter((item) => item.status === searchStatus);
-    }
-
-    // Filter by date range
-    if (dateRange && dateRange.length === 2) {
-      const [startDate, endDate] = dateRange;
-      updatedData = updatedData.filter((item) => {
-        const itemDate = new Date(item.registration_date);
-        return itemDate >= startDate && itemDate <= endDate;
+      data = data.filter((c) => {
+        // Check companies field (ManyToMany)
+        if (c.companies && Array.isArray(c.companies) && c.companies.length > 0) {
+          return c.companies.some(comp => {
+            if (typeof comp === 'object') {
+              return comp.company_name.toLowerCase().includes(searchCompanyName.toLowerCase());
+            }
+            return false;
+          });
+        }
+        return false;
       });
     }
 
-    setFilteredData(updatedData);
-  };
-
-  // ** Initialize data
-  useEffect(() => {
-    const loadData = () => {
-      const carsData = getCars();
-      getCarFilters(); // Remove assignment since it's not used
-      setCars(carsData);
-    };
-
-    loadData();
-  }, []);
-
-  // ** Filter cars by company when component mounts or company changes
-  useEffect(() => {
-    if (fromCompany && company) {
-      const companyCars = getCarsByCompany(company.company_name);
-      setCars(companyCars);
+    if (searchStatus) {
+      data = data.filter((c) => Number(c.status) === Number(searchStatus));
     }
-  }, [company, fromCompany]);
 
-  // ** Apply filters automatically when search criteria or cars change
-  useEffect(() => {
-    applyFilters();
+    if (dateRange.length === 2) {
+      const [start, end] = dateRange;
+      data = data.filter((c) => {
+        const createDate = new Date(c.create_at);
+        return createDate >= start && createDate <= end;
+      });
+    }
+
+    setFilteredData(data);
   }, [
     searchCarName,
     searchPlateNumber,
@@ -168,14 +274,6 @@ const CarTable = () => {
     dateRange,
     cars,
   ]);
-
-  // ** Show Alert
-  const showAlert = (type, message) => {
-    setAlert({ show: true, type, message });
-    setTimeout(() => {
-      setAlert({ show: false, type: "", message: "" });
-    }, 3000);
-  };
 
   // ** Handle Back Button Click
   const handleBackClick = () => {
@@ -187,13 +285,12 @@ const CarTable = () => {
 
   // ** Clear All Filters
   const clearFilters = () => {
-    setSearchCarNumber("");
     setSearchCarName("");
     setSearchPlateNumber("");
     setSearchDriverName("");
     setSearchCompanyName("");
     setSearchStatus("");
-    setDateRange("");
+    setDateRange([]);
   };
 
   // ** Handle Edit Click
@@ -204,33 +301,105 @@ const CarTable = () => {
 
   // ** Handle Delete Click
   const handleDeleteClick = (carId) => {
-    setSelectedCar(cars.find((car) => car.car_id === carId));
+    const car = cars.find((c) => c.id === carId);
+    setSelectedCar(car);
     setDeleteModal(true);
   };
 
-  // ** Get translated columns
-  const columns = carColumns(t, handleEdit, handleDeleteClick);
-  const searchFilters = carSearchFilters(t);
+  // ** Table columns configuration - Updated for ManyToMany
+  const columns = [
+    {
+      name: t("id") || "ID",
+      selector: (row) => row.id,
+      sortable: true,
+      width: "70px",
+    },
+    {
+      name: t("car_name") || "Car Name",
+      selector: (row) => row.car_name,
+      sortable: true,
+      minWidth: "150px",
+    },
+    {
+      name: t("plate_number") || "Plate Number",
+      selector: (row) => row.plate_number,
+      sortable: true,
+      minWidth: "120px",
+    },
+    {
+      name: t("driver_name") || "Driver Name",
+      selector: (row) => row.driver_name,
+      sortable: true,
+      minWidth: "150px",
+    },
+    {
+      name: t("empty_weight") || "Empty Weight",
+      selector: (row) => row.empty_weight,
+      sortable: true,
+      cell: (row) => `${row.empty_weight} kg`,
+      width: "120px",
+    },
+    {
+      name: t("vehicle_type") || "Vehicle Type",
+      selector: (row) => row.vehicle_type?.truck_name || "N/A",
+      sortable: true,
+      width: "120px",
+    },
+    // Only show company column when NOT viewing specific company
+    ...(!fromCompany ? [{
+      name: t("company") || "Company",
+      selector: (row) => {
+        if (row.companies && Array.isArray(row.companies) && row.companies.length > 0) {
+          // Show first company name
+          if (typeof row.companies[0] === 'object') {
+            return row.companies[0].company_name;
+          }
+        }
+        return "N/A";
+      },
+      sortable: true,
+      minWidth: "150px",
+    }] : []),
+    {
+      name: t("status") || "Status",
+      selector: (row) => statusMap[row.status] || "Unknown",
+      sortable: true,
+      width: "100px",
+      cell: (row) => {
+        const statusText = statusMap[row.status] || "Unknown";
+        const badgeColor = row.status === 1 ? "success" : "secondary";
+        return <Badge color={badgeColor}>{statusText}</Badge>;
+      },
+    },
+    {
+      name: t("actions") || "Actions",
+      cell: (row) => (
+        <div className="d-flex">
+          <Button
+            color="primary"
+            size="sm"
+            className="me-1"
+            onClick={() => handleEdit(row)}
+            title={t("edit") || "Edit"}
+          >
+            <Edit size={14} />
+          </Button>
+          <Button
+            color="danger"
+            size="sm"
+            onClick={() => handleDeleteClick(row.id)}
+            title={t("delete") || "Delete"}
+          >
+            <Trash2 size={14} />
+          </Button>
+        </div>
+      ),
+      width: "100px",
+    },
+  ];
 
   // ** Function to handle Pagination
   const handlePagination = (page) => setCurrentPage(page.selected);
-
-  // ** Table data to render
-  const dataToRender = () => {
-    if (
-      searchCarNumber.length ||
-      searchCarName.length ||
-      searchPlateNumber.length ||
-      searchDriverName.length ||
-      searchCompanyName.length ||
-      searchStatus.length ||
-      dateRange.length
-    ) {
-      return filteredData;
-    } else {
-      return cars;
-    }
-  };
 
   // ** Custom Pagination
   const CustomPagination = () => (
@@ -238,8 +407,8 @@ const CarTable = () => {
       previousLabel={""}
       nextLabel={""}
       forcePage={currentPage}
-      onPageChange={(page) => handlePagination(page)}
-      pageCount={Math.ceil(dataToRender().length / 7) || 1}
+      onPageChange={handlePagination}
+      pageCount={Math.ceil(filteredData.length / 7) || 1}
       breakLabel={"..."}
       pageRangeDisplayed={2}
       marginPagesDisplayed={2}
@@ -259,62 +428,130 @@ const CarTable = () => {
   );
 
   // ** Handle Delete Confirmation
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (selectedCar) {
-      const updatedCars = deleteCar(selectedCar.car_id);
-      setCars(updatedCars);
-      setDeleteModal(false);
-      setSelectedCar(null);
-      showAlert("success", "Car deleted successfully!");
+      try {
+        await axios.delete(`${API_URL}/vehicle/${selectedCar.id}/`);
+        toast.success("Vehicle deleted successfully!");
+        fetchCars(); // Refresh the list
+        setDeleteModal(false);
+        setSelectedCar(null);
+      } catch (error) {
+        console.error("Error deleting vehicle:", error);
+        toast.error("Failed to delete vehicle");
+      }
     }
   };
 
-  // ** Handle Add Car Submission
-  const handleAddCarSubmit = (carData) => {
+  // ** Handle Add Vehicle Submission - FIXED for ManyToMany
+  const handleAddVehicleSubmit = async (vehicleData) => {
     setIsSubmitting(true);
+    
+    try {
+      // **IMPORTANT: For ManyToMany, we need to create vehicle first, then associate with company**
+      
+      // 1. First create the vehicle
+      const formattedData = {
+        car_name: vehicleData.carName,
+        plate_number: vehicleData.plateNumber,
+        driver_name: vehicleData.driverName,
+        empty_weight: parseInt(vehicleData.emptyWeight) || 0,
+        vehicle_type: vehicleData.vehicleType || null,
+        status: vehicleData.status === "active" ? 1 : 2,
+        create_at: vehicleData.registrationDate || new Date().toISOString().split('T')[0],
+        update_at: new Date().toISOString().split('T')[0],
+      };
 
-    // If we're in company-specific view, auto-set the company name
-    if (fromCompany && company) {
-      carData.companyName = company.company_name;
-    }
+      console.log("Creating vehicle with data:", formattedData);
 
-    console.log("Adding new car:", carData);
-
-    // Simulate API call delay
-    setTimeout(() => {
-      const updatedCars = addCar(carData);
-      setCars(updatedCars);
-      setAddCarModal(false);
+      const response = await axios.post(`${API_URL}/vehicle/`, formattedData);
+      
+      if (response.status === 201) {
+        const newVehicle = response.data;
+        
+        // 2. If fromCompany, associate the vehicle with the company
+        if (fromCompany && company) {
+          try {
+            console.log("Associating vehicle with company...");
+            
+            // For ManyToMany, we need to update the company's vehicles
+            // First get current company
+            const companyResponse = await axios.get(`${API_URL}/companies/${company.id}/`);
+            const currentCompany = companyResponse.data;
+            
+            // Add the new vehicle to the company's vehicles
+            const updatedVehicles = [...(currentCompany.vehicle || []), newVehicle.id];
+            
+            // Update the company
+            await axios.patch(`${API_URL}/companies/${company.id}/`, {
+              vehicle: updatedVehicles
+            });
+            
+            console.log("Vehicle associated with company successfully");
+            
+          } catch (associationError) {
+            console.error("Failed to associate vehicle with company:", associationError);
+            toast.warning("Vehicle created but failed to associate with company");
+          }
+        }
+        
+        toast.success("Vehicle added successfully!");
+        setAddCarModal(false);
+        fetchCars(); // Refresh the list
+      }
+    } catch (error) {
+      console.error("Error adding vehicle:", error);
+      const errorMsg = error.response?.data;
+      if (typeof errorMsg === 'object') {
+        Object.keys(errorMsg).forEach(key => {
+          toast.error(`${key}: ${errorMsg[key]}`);
+        });
+      } else {
+        toast.error(errorMsg || "Failed to add vehicle");
+      }
+    } finally {
       setIsSubmitting(false);
-      showAlert("success", "Car added successfully!");
-    }, 1000);
+    }
   };
 
-  // ** Handle Edit Car Submission
-  const handleEditCarSubmit = (carData) => {
+  // ** Handle Edit Vehicle Submission
+  const handleEditVehicleSubmit = async (vehicleData) => {
     setIsSubmitting(true);
+    
+    try {
+      const formattedData = {
+        car_name: vehicleData.carName,
+        plate_number: vehicleData.plateNumber,
+        driver_name: vehicleData.driverName,
+        empty_weight: parseInt(vehicleData.emptyWeight) || 0,
+        vehicle_type: vehicleData.vehicleType || null,
+        status: vehicleData.status === "active" ? 1 : 2,
+        update_at: new Date().toISOString().split('T')[0],
+      };
 
-    console.log("Editing car ID:", selectedCar?.car_id);
-    console.log("New car data:", carData);
+      console.log("Updating vehicle data:", formattedData);
 
-    // Simulate API call delay
-    setTimeout(() => {
-      if (selectedCar) {
-        const updatedCars = updateCar(selectedCar.car_id, carData);
-        setCars(updatedCars);
+      const response = await axios.put(
+        `${API_URL}/vehicle/${selectedCar.id}/`,
+        formattedData
+      );
+      
+      if (response.status === 200) {
+        toast.success("Vehicle updated successfully!");
         setEditCarModal(false);
         setSelectedCar(null);
-        setIsSubmitting(false);
-        showAlert("success", "Car updated successfully!");
-      } else {
-        setIsSubmitting(false);
-        showAlert("error", "No car selected for editing");
+        fetchCars(); // Refresh the list
       }
-    }, 1000);
+    } catch (error) {
+      console.error("Error updating vehicle:", error);
+      toast.error(error.response?.data?.message || "Failed to update vehicle");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  // ** Handle Add Car Button Click
-  const handleAddCarClick = () => {
+  // ** Handle Add Vehicle Button Click
+  const handleAddVehicleClick = () => {
     setAddCarModal(true);
   };
 
@@ -329,16 +566,8 @@ const CarTable = () => {
 
   return (
     <Fragment>
-      {/* Alert */}
-      {alert.show && (
-        <Alert
-          color={alert.type === "success" ? "success" : "danger"}
-          className="mb-2"
-        >
-          {alert.message}
-        </Alert>
-      )}
-
+      <ToastContainer position="top-right" autoClose={3000} />
+      
       <Card>
         <CardHeader className="border-bottom">
           <div className="d-flex justify-content-between align-items-center">
@@ -356,10 +585,10 @@ const CarTable = () => {
               )}
               <CardTitle tag="h4" className="mb-0">
                 {fromCompany && company
-                  ? `${t("car_management") || "Car Management"} - ${
+                  ? `${t("vehicle_management") || "Vehicle Management"} - ${
                       company.company_name
                     }`
-                  : t("car_management") || "Car Management"}
+                  : t("vehicle_management") || "Vehicle Management"}
                 {fromCompany && company && (
                   <Badge color="primary" className="ms-2">
                     {t("company_view") || "Company View"}
@@ -379,11 +608,11 @@ const CarTable = () => {
               </Button>
               <Button
                 color="primary"
-                onClick={handleAddCarClick}
+                onClick={handleAddVehicleClick}
                 className="d-flex align-items-center"
               >
                 <Plus size={14} className="me-50" />
-                {t("add_car") || "Add Car"}
+                {t("add_vehicle") || "Add Vehicle"}
               </Button>
             </div>
           </div>
@@ -455,11 +684,8 @@ const CarTable = () => {
                   onChange={(e) => setSearchStatus(e.target.value)}
                 >
                   <option value="">{t("all_status") || "All Status"}</option>
-                  {searchFilters.carStatus.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
+                  <option value="1">{t("active") || "Active"}</option>
+                  <option value="2">{t("inactive") || "Inactive"}</option>
                 </Input>
               </Col>
 
@@ -487,7 +713,7 @@ const CarTable = () => {
                 >
                   {t("clear_filters") || "Clear Filters"}
                 </Button>
-                <Button color="primary" onClick={applyFilters}>
+                <Button color="primary" onClick={() => {}}>
                   {t("apply_filters") || "Apply Filters"}
                 </Button>
               </Col>
@@ -496,50 +722,75 @@ const CarTable = () => {
         </Collapse>
 
         {/* Data Table */}
-        <div className="react-dataTable">
-          <DataTable
-            noHeader
-            pagination
-            columns={columns}
-            paginationPerPage={7}
-            className="react-dataTable"
-            sortIcon={<ChevronDown size={10} />}
-            paginationDefaultPage={currentPage + 1}
-            paginationComponent={CustomPagination}
-            data={dataToRender()}
-          />
-        </div>
+        <CardBody>
+          {loading ? (
+            <div className="text-center py-5">
+              <Spinner color="primary" />
+              <p className="mt-2">Loading vehicles...</p>
+            </div>
+          ) : filteredData.length === 0 ? (
+            <div className="text-center py-5">
+              <p className="text-muted">
+                {fromCompany && company 
+                  ? `No vehicles found for ${company.company_name}`
+                  : "No vehicles found"}
+              </p>
+              {/* <Button color="primary" onClick={handleAddVehicleClick}>
+                <Plus size={14} className="me-50" />
+                {fromCompany && company 
+                  ? `Add Vehicle to ${company.company_name}`
+                  : "Add Your First Vehicle"}
+              </Button> */}
+            </div>
+          ) : (
+            <div className="react-dataTable">
+              <DataTable
+                noHeader
+                pagination
+                columns={columns}
+                paginationPerPage={7}
+                className="react-dataTable"
+                sortIcon={<ChevronDown size={10} />}
+                paginationDefaultPage={currentPage + 1}
+                paginationComponent={CustomPagination}
+                data={filteredData}
+              />
+            </div>
+          )}
+        </CardBody>
       </Card>
 
-      {/* Add Car Modal */}
+      {/* Add Vehicle Modal */}
       <Modal isOpen={addCarModal} toggle={closeModals} size="lg">
         <ModalHeader toggle={closeModals}>
-          {t("add_new_car") || "Add New Car"}
+          {t("add_new_vehicle") || "Add New Vehicle"}
           {fromCompany && company && ` - ${company.company_name}`}
         </ModalHeader>
         <ModalBody>
           <AddCar
-            onSuccess={handleAddCarSubmit}
+            onSuccess={handleAddVehicleSubmit}
             onCancel={closeModals}
             selectedCompany={fromCompany ? company : null}
             loading={isSubmitting}
             isEdit={false}
+            vehicleTypes={vehicleTypes}
           />
         </ModalBody>
       </Modal>
 
-      {/* Edit Car Modal */}
+      {/* Edit Vehicle Modal */}
       <Modal isOpen={editCarModal} toggle={closeModals} size="lg">
         <ModalHeader toggle={closeModals}>
-          {t("edit_car") || "Edit Car"} - {selectedCar?.car_id}
+          {t("edit_vehicle") || "Edit Vehicle"} - {selectedCar?.car_name}
         </ModalHeader>
         <ModalBody>
           <AddCar
-            onSuccess={handleEditCarSubmit}
+            onSuccess={handleEditVehicleSubmit}
             onCancel={closeModals}
             initialData={selectedCar}
             loading={isSubmitting}
             isEdit={true}
+            vehicleTypes={vehicleTypes}
           />
         </ModalBody>
       </Modal>
@@ -547,12 +798,12 @@ const CarTable = () => {
       {/* Delete Confirmation Modal */}
       <Modal isOpen={deleteModal} toggle={closeModals}>
         <ModalHeader toggle={closeModals}>
-          {t("delete_car") || "Delete Car"}
+          {t("delete_vehicle") || "Delete Vehicle"}
         </ModalHeader>
         <ModalBody>
           <p>
-            {t("delete_car_confirmation") ||
-              "Are you sure you want to delete this car?"}
+            {t("delete_vehicle_confirmation") ||
+              "Are you sure you want to delete this vehicle?"}
           </p>
           {selectedCar && (
             <div className="mt-2">

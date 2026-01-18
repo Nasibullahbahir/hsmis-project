@@ -56,7 +56,10 @@ class VehicleTypeSerializer(serializers.ModelSerializer):
         model = VehicleType
         fields = '__all__'
 
+# In your serializers.py, update VehicleSerializer:
 class VehicleSerializer(serializers.ModelSerializer):
+    companies = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    
     class Meta:
         model = Vehicle
         fields = '__all__'

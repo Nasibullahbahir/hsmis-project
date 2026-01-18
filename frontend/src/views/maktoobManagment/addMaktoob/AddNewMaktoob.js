@@ -18,69 +18,56 @@ const AddNewMaktoob = ({
   isEdit = false,
   initialData,
   loading = false,
+  users = [],
+  companies = [],
 }) => {
   const { t } = useTranslation();
 
-  // ** Form State - Only specified fields
+  // ** Form State - Based on Django model fields
   const [formData, setFormData] = useState({
     maktoob_type: "maktoob-contract",
     maktoob_number: "",
-    maktoob_scan: null,
     sadir_date: "",
-    company_name: "",
     source: "",
     start_date: "",
     end_date: "",
-    status: "pending",
     description: "",
+    company: "",
+    user: "",
   });
-
-  // ** File state
-  const [selectedFile, setSelectedFile] = useState(null);
 
   // ** Initialize form with data
   useEffect(() => {
     if (selectedCompany) {
       setFormData((prev) => ({
         ...prev,
-        company_name: selectedCompany.company_name,
+        company: selectedCompany.id,
       }));
     }
 
     if (isEdit && initialData) {
       setFormData({
         maktoob_type: initialData.maktoob_type || "maktoob-contract",
-        maktoob_number: initialData.maktoob_number || "",
-        maktoob_scan: initialData.maktoob_scan || null,
+        maktoob_number: initialData.maktoob_number?.toString() || "",
         sadir_date: initialData.sadir_date || "",
-        company_name: initialData.company_name || "",
         source: initialData.source || "",
         start_date: initialData.start_date || "",
         end_date: initialData.end_date || "",
-        status: initialData.status || "pending",
         description: initialData.description || "",
+        company: initialData.company?.id?.toString() || "",
+        user: initialData.user?.id?.toString() || "",
       });
     }
   }, [selectedCompany, isEdit, initialData]);
 
   // ** Handle Input Change
   const handleInputChange = (e) => {
-    const { name, value, type, files } = e.target;
+    const { name, value } = e.target;
     
-    if (type === 'file') {
-      const file = files[0];
-      setSelectedFile(file);
-      // Store only the file name, not the File object
-      setFormData((prev) => ({
-        ...prev,
-        [name]: file ? file.name : null,
-      }));
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        [name]: value,
-      }));
-    }
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
 
   // ** Handle Form Submit
@@ -88,8 +75,20 @@ const AddNewMaktoob = ({
     e.preventDefault();
 
     // Validate required fields
-    if (!formData.company_name || !formData.maktoob_number) {
-      alert("Please fill in required fields");
+    if (!formData.maktoob_number) {
+      alert("Maktoob Number is required");
+      return;
+    }
+
+    if (!formData.company && !selectedCompany) {
+      alert("Company is required");
+      return;
+    }
+
+    // Validate maktoob number is a valid number
+    const maktoobNumber = parseInt(formData.maktoob_number);
+    if (isNaN(maktoobNumber)) {
+      alert("Maktoob Number must be a valid number");
       return;
     }
 
@@ -105,16 +104,14 @@ const AddNewMaktoob = ({
       setFormData({
         maktoob_type: "maktoob-contract",
         maktoob_number: "",
-        maktoob_scan: null,
         sadir_date: "",
-        company_name: selectedCompany ? selectedCompany.company_name : "",
         source: "",
         start_date: "",
         end_date: "",
-        status: "pending",
         description: "",
+        company: selectedCompany ? selectedCompany.id : "",
+        user: "",
       });
-      setSelectedFile(null);
     }
   };
 
@@ -132,7 +129,7 @@ const AddNewMaktoob = ({
         <Row>
           <Col md="4" className="mb-1">
             <Label className="form-label" htmlFor="maktoob_type">
-              {t("maktoob_type")} *
+              {t("maktoob_type")}
             </Label>
             <Input
               type="select"
@@ -140,7 +137,6 @@ const AddNewMaktoob = ({
               id="maktoob_type"
               value={formData.maktoob_type}
               onChange={handleInputChange}
-              required
             >
               <option value="maktoob-contract">{t("maktoob_contract")}</option>
               <option value="maktoob-tamded">{t("maktoob_tamded")}</option>
@@ -159,32 +155,14 @@ const AddNewMaktoob = ({
               {t("maktoob_number")} *
             </Label>
             <Input
-              type="text"
+              type="number"
               name="maktoob_number"
               id="maktoob_number"
-              placeholder="MKT-001"
+              placeholder="12345"
               value={formData.maktoob_number}
               onChange={handleInputChange}
               required
             />
-          </Col>
-
-          <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="maktoob_scan">
-              {t("maktoob_scan")}
-            </Label>
-            <Input
-              type="file"
-              name="maktoob_scan"
-              id="maktoob_scan"
-              accept=".pdf, .jpg, .jpeg, .png"
-              onChange={handleInputChange}
-            />
-            {selectedFile && (
-              <small className="text-muted">
-                Selected file: {selectedFile.name}
-              </small>
-            )}
           </Col>
 
           <Col md="4" className="mb-1">
@@ -201,28 +179,8 @@ const AddNewMaktoob = ({
           </Col>
 
           <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="company_name">
-              {t("company_name")} *
-            </Label>
-            <Input
-              type="select"
-              name="company_name"
-              id="company_name"
-              value={formData.company_name}
-              onChange={handleInputChange}
-              required
-            >
-              <option value="">{t("select_company")}</option>
-              <option value="Company 1">Company 1</option>
-              <option value="Company 2">Company 2</option>
-              <option value="Company 3">Company 3</option>
-              <option value="Company 4">Company 4</option>
-            </Input>
-          </Col>
-
-          <Col md="4" className="mb-1">
             <Label className="form-label" htmlFor="source">
-              {t("source")} 
+              {t("source")}
             </Label>
             <Input
               type="text"
@@ -260,23 +218,65 @@ const AddNewMaktoob = ({
             />
           </Col>
 
+          {/* Company selection - Only show if not from a specific company view */}
+          {!selectedCompany && (
+            <Col md="4" className="mb-1">
+              <Label className="form-label" htmlFor="company">
+                {t("company")} *
+              </Label>
+              <Input
+                type="select"
+                name="company"
+                id="company"
+                value={formData.company}
+                onChange={handleInputChange}
+                required={!selectedCompany}
+              >
+                <option value="">{t("select_company")}</option>
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.company_name}
+                  </option>
+                ))}
+              </Input>
+            </Col>
+          )}
+
+          {selectedCompany && (
+            <Col md="4" className="mb-1">
+              <Label className="form-label">
+                {t("company")}
+              </Label>
+              <Input
+                type="text"
+                value={selectedCompany.company_name}
+                disabled
+                readOnly
+              />
+              <small className="text-muted">
+                This maktoob will be associated with {selectedCompany.company_name}
+              </small>
+            </Col>
+          )}
+
+          {/* User selection */}
           <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="status">
-              {t("status")}
+            <Label className="form-label" htmlFor="user">
+              {t("user")}
             </Label>
             <Input
               type="select"
-              name="status"
-              id="status"
-              value={formData.status}
+              name="user"
+              id="user"
+              value={formData.user}
               onChange={handleInputChange}
             >
-              <option value="pending">{t("pending") || "Pending"}</option>
-              <option value="completed">{t("completed") || "Completed"}</option>
-              <option value="in-progress">
-                {t("in_progress") || "In Progress"}
-              </option>
-              <option value="cancelled">{t("cancelled") || "Cancelled"}</option>
+              <option value="">{t("select_user")}</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.username}
+                </option>
+              ))}
             </Input>
           </Col>
 
@@ -331,6 +331,8 @@ AddNewMaktoob.propTypes = {
   isEdit: PropTypes.bool,
   initialData: PropTypes.object,
   loading: PropTypes.bool,
+  users: PropTypes.array,
+  companies: PropTypes.array,
 };
 
 // Default props
@@ -341,6 +343,8 @@ AddNewMaktoob.defaultProps = {
   isEdit: false,
   initialData: null,
   loading: false,
+  users: [],
+  companies: [],
 };
 
 export default AddNewMaktoob;

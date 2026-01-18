@@ -23,43 +23,37 @@ const AddNewContractSales = ({
 }) => {
   const { t } = useTranslation();
 
-  // ** Form State
+  // ** Form State - using snake_case for API
   const [formData, setFormData] = useState({
     area: "",
-    mineralAmount: "",
-    unitPrice: "",
-    mineralTotalPrice: "",
-    royaltyReceiptNumber: "",
-    haqWazanReceiptNumber: "",
-    weighingTotalPrice: "",
-    contractDate: new Date().toISOString().split("T")[0],
+    mineral_amount: "",
+    unit_price: "",
+    mineral_total_price: "",
+    royalty_receipt_number: "",
+    haq_wazan_receipt_number: "",
+    weighing_total_price: "",
+    create_at: new Date().toISOString().split("T")[0],
   });
 
-  // In AddNewContractSales component, add this useEffect to set the company when in company context
+  // Initialize form with selected company when in add mode
   useEffect(() => {
     if (selectedCompany && !isEdit) {
-      console.log("Setting company in contract form:", selectedCompany);
-      setFormData((prev) => ({
-        ...prev,
-        companyName: selectedCompany.company_name,
-        companyId: selectedCompany.company_id,
-      }));
+      // Company will be handled in the parent component
     }
   }, [selectedCompany, isEdit]);
 
-  // ** Initialize form with data
+  // ** Initialize form with data from API when editing
   useEffect(() => {
     if (isEdit && initialData) {
       setFormData({
         area: initialData.area || "",
-        mineralAmount: initialData.mineralAmount || "",
-        unitPrice: initialData.unitPrice || "",
-        mineralTotalPrice: initialData.mineralTotalPrice || "",
-        royaltyReceiptNumber: initialData.royaltyReceiptNumber || "",
-        haqWazanReceiptNumber: initialData.haqWazanReceiptNumber || "",
-        weighingTotalPrice: initialData.weighingTotalPrice || "",
-        contractDate:
-          initialData.contractDate || new Date().toISOString().split("T")[0],
+        mineral_amount: initialData.mineral_amount?.toString() || "",
+        unit_price: initialData.unit_price?.toString() || "",
+        mineral_total_price: initialData.mineral_total_price?.toString() || "",
+        royalty_receipt_number: initialData.royalty_receipt_number?.toString() || "",
+        haq_wazan_receipt_number: initialData.haq_wazan_receipt_number?.toString() || "",
+        weighing_total_price: initialData.weighing_total_price?.toString() || "",
+        create_at: initialData.create_at || new Date().toISOString().split("T")[0],
       });
     }
   }, [isEdit, initialData]);
@@ -73,16 +67,15 @@ const AddNewContractSales = ({
     }));
 
     // Auto-calculate mineral total price
-    if (name === "mineralAmount" || name === "unitPrice") {
-      const amount = name === "mineralAmount" ? value : formData.mineralAmount;
-      const price = name === "unitPrice" ? value : formData.unitPrice;
+    if (name === "mineral_amount" || name === "unit_price") {
+      const amount = name === "mineral_amount" ? value : formData.mineral_amount;
+      const price = name === "unit_price" ? value : formData.unit_price;
 
-      if (amount && price) {
+      if (amount && price && !isNaN(amount) && !isNaN(price)) {
+        const calculatedTotal = (parseFloat(amount) * parseFloat(price)).toFixed(2);
         setFormData((prev) => ({
           ...prev,
-          mineralTotalPrice: (
-            parseFloat(amount) * parseFloat(price)
-          ).toString(),
+          mineral_total_price: calculatedTotal,
         }));
       }
     }
@@ -93,29 +86,40 @@ const AddNewContractSales = ({
     e.preventDefault();
 
     // Validate required fields
-    if (!formData.area || !formData.mineralAmount) {
-      alert("Please fill in required fields");
+    if (!formData.area || !formData.mineral_amount) {
+      alert("Please fill in required fields (Area and Mineral Amount)");
       return;
     }
 
-    console.log("Contract form data to submit:", formData);
+    // Prepare data for API
+    const preparedData = {
+      area: formData.area,
+      mineral_amount: parseInt(formData.mineral_amount) || 0,
+      unit_price: formData.unit_price ? parseFloat(formData.unit_price) : null,
+      mineral_total_price: formData.mineral_total_price ? parseFloat(formData.mineral_total_price) : null,
+      royalty_receipt_number: formData.royalty_receipt_number ? parseInt(formData.royalty_receipt_number) : null,
+      haq_wazan_receipt_number: formData.haq_wazan_receipt_number ? parseInt(formData.haq_wazan_receipt_number) : null,
+      weighing_total_price: formData.weighing_total_price ? parseInt(formData.weighing_total_price) : null,
+      create_at: formData.create_at,
+      company: selectedCompany?.id || (initialData?.company?.id || null),
+    };
 
     // Call onSuccess callback with form data
     if (onSuccess) {
-      onSuccess(formData);
+      onSuccess(preparedData);
     }
 
     // Reset form only for add mode
     if (!isEdit) {
       setFormData({
         area: "",
-        mineralAmount: "",
-        unitPrice: "",
-        mineralTotalPrice: "",
-        royaltyReceiptNumber: "",
-        haqWazanReceiptNumber: "",
-        weighingTotalPrice: "",
-        contractDate: new Date().toISOString().split("T")[0],
+        mineral_amount: "",
+        unit_price: "",
+        mineral_total_price: "",
+        royalty_receipt_number: "",
+        haq_wazan_receipt_number: "",
+        weighing_total_price: "",
+        create_at: new Date().toISOString().split("T")[0],
       });
     }
   };
@@ -126,13 +130,13 @@ const AddNewContractSales = ({
     if (!isEdit) {
       setFormData({
         area: "",
-        mineralAmount: "",
-        unitPrice: "",
-        mineralTotalPrice: "",
-        royaltyReceiptNumber: "",
-        haqWazanReceiptNumber: "",
-        weighingTotalPrice: "",
-        contractDate: new Date().toISOString().split("T")[0],
+        mineral_amount: "",
+        unit_price: "",
+        mineral_total_price: "",
+        royalty_receipt_number: "",
+        haq_wazan_receipt_number: "",
+        weighing_total_price: "",
+        create_at: new Date().toISOString().split("T")[0],
       });
     }
 
@@ -146,10 +150,10 @@ const AddNewContractSales = ({
     <Fragment>
       <div className="content-header">
         <h5 className="mb-0">
-          {isEdit ? t("edit_contract") : t("add_contract")}
+          {isEdit ? t("edit_purchase") : t("add_purchase")}
         </h5>
         <small className="text-muted">
-          {isEdit ? t("edit_contract_details") : t("enter_contract_details")}
+          {isEdit ? t("edit_purchase_details") : t("enter_purchase_details")}
         </small>
       </div>
       <Form onSubmit={handleSubmit}>
@@ -170,105 +174,126 @@ const AddNewContractSales = ({
           </Col>
 
           <Col md="6" className="mb-1">
-            <Label className="form-label" htmlFor="mineralAmount">
+            <Label className="form-label" htmlFor="mineral_amount">
               {t("mineral_amount")} *
             </Label>
             <Input
               type="number"
-              name="mineralAmount"
-              id="mineralAmount"
+              name="mineral_amount"
+              id="mineral_amount"
               placeholder="100"
-              value={formData.mineralAmount}
+              value={formData.mineral_amount}
               onChange={handleInputChange}
               required
+              min="0"
             />
           </Col>
 
           <Col md="6" className="mb-1">
-            <Label className="form-label" htmlFor="unitPrice">
+            <Label className="form-label" htmlFor="unit_price">
               {t("unit_price")}
             </Label>
             <Input
               type="number"
-              name="unitPrice"
-              id="unitPrice"
-              placeholder="50"
-              value={formData.unitPrice}
+              name="unit_price"
+              id="unit_price"
+              placeholder="50.00"
+              value={formData.unit_price}
               onChange={handleInputChange}
+              min="0"
+              step="0.01"
             />
           </Col>
 
           <Col md="6" className="mb-1">
-            <Label className="form-label" htmlFor="mineralTotalPrice">
+            <Label className="form-label" htmlFor="mineral_total_price">
               {t("mineral_total_price")}
             </Label>
             <Input
               type="number"
-              name="mineralTotalPrice"
-              id="mineralTotalPrice"
-              placeholder="5000"
-              value={formData.mineralTotalPrice}
+              name="mineral_total_price"
+              id="mineral_total_price"
+              placeholder="5000.00"
+              value={formData.mineral_total_price}
               onChange={handleInputChange}
               readOnly
+              min="0"
+              step="0.01"
             />
           </Col>
 
           <Col md="6" className="mb-1">
-            <Label className="form-label" htmlFor="royaltyReceiptNumber">
+            <Label className="form-label" htmlFor="royalty_receipt_number">
               {t("royalty_receipt_number")}
             </Label>
             <Input
-              type="text"
-              name="royaltyReceiptNumber"
-              id="royaltyReceiptNumber"
-              placeholder="RR001"
-              value={formData.royaltyReceiptNumber}
+              type="number"
+              name="royalty_receipt_number"
+              id="royalty_receipt_number"
+              placeholder="1001"
+              value={formData.royalty_receipt_number}
               onChange={handleInputChange}
+              min="0"
             />
           </Col>
 
           <Col md="6" className="mb-1">
-            <Label className="form-label" htmlFor="haqWazanReceiptNumber">
+            <Label className="form-label" htmlFor="haq_wazan_receipt_number">
               {t("haq_wazan_receipt_number")}
             </Label>
             <Input
-              type="text"
-              name="haqWazanReceiptNumber"
-              id="haqWazanReceiptNumber"
-              placeholder="HWR001"
-              value={formData.haqWazanReceiptNumber}
+              type="number"
+              name="haq_wazan_receipt_number"
+              id="haq_wazan_receipt_number"
+              placeholder="2001"
+              value={formData.haq_wazan_receipt_number}
               onChange={handleInputChange}
+              min="0"
             />
           </Col>
 
           <Col md="6" className="mb-1">
-            <Label className="form-label" htmlFor="weighingTotalPrice">
+            <Label className="form-label" htmlFor="weighing_total_price">
               {t("weighing_total_price")}
             </Label>
             <Input
               type="number"
-              name="weighingTotalPrice"
-              id="weighingTotalPrice"
+              name="weighing_total_price"
+              id="weighing_total_price"
               placeholder="1000"
-              value={formData.weighingTotalPrice}
+              value={formData.weighing_total_price}
               onChange={handleInputChange}
+              min="0"
             />
           </Col>
 
           <Col md="6" className="mb-1">
-            <Label className="form-label" htmlFor="contractDate">
-              {t("contract_date")} *
+            <Label className="form-label" htmlFor="create_at">
+              {t("purchase_date")} *
             </Label>
             <Input
               type="date"
-              name="contractDate"
-              id="contractDate"
-              value={formData.contractDate}
+              name="create_at"
+              id="create_at"
+              value={formData.create_at}
               onChange={handleInputChange}
               required
             />
           </Col>
         </Row>
+
+        {/* Display selected company info */}
+        {selectedCompany && !isEdit && (
+          <Row>
+            <Col md="12" className="mb-2">
+              <div className="alert alert-info p-2">
+                <small>
+                  <strong>Adding purchase for:</strong> {selectedCompany.company_name} (ID: {selectedCompany.id})
+                </small>
+              </div>
+            </Col>
+          </Row>
+        )}
 
         {/* Save and Cancel Buttons */}
         <div className="d-flex justify-content-end mt-2">

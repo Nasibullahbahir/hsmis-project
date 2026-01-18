@@ -1,323 +1,209 @@
-// ** React Imports
-import { Fragment, useState, useEffect } from "react";
-import PropTypes from "prop-types";
-
-// ** Icons Imports
-import { Save, X } from "react-feather";
-
-// ** Third Party Components
-import Flatpickr from "react-flatpickr";
-
-// ** Reactstrap Imports
-import { Label, Row, Col, Input, Form, Button, Spinner } from "reactstrap";
-
-// ** i18n
+// AddNewCompany.js - Updated for Django backend
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  Form,
+  FormGroup,
+  Label,
+  Input,
+  Button,
+  Row,
+  Col,
+  Spinner,
+} from "reactstrap";
 
-// ** Styles
-import "@styles/react/libs/flatpickr/flatpickr.scss";
-
-const AddNewCompany = ({
-  onSuccess,
-  onCancel,
-  loading,
-  initialData,
-  isEdit = false,
-}) => {
+const AddNewCompany = ({ onSuccess, onCancel, initialData, loading, isEdit }) => {
   const { t } = useTranslation();
-
-  // ** Form State
+  
+  // Form state
   const [formData, setFormData] = useState({
-    company_name: "",
-    leader_name: "",
+    companyName: "",
+    leaderName: "",
     phone: "",
-    company_type: "",
-    TIN_number: "",
-    licence_number: "",
-    state: "",
-    registration_date: new Date().toISOString().split("T")[0],
+    companyType: "",
+    TIN: "",
+    status: "active",
+    registrationDate: new Date().toISOString().split('T')[0],
   });
 
-  // ** Initialize form with data for edit mode
+  // Set initial data if editing
   useEffect(() => {
     if (isEdit && initialData) {
-      console.log("Initial data for edit:", initialData);
       setFormData({
-        company_name: initialData.company_name || "",
-        leader_name: initialData.leader_name || "",
+        companyName: initialData.company_name || "",
+        leaderName: initialData.leader_name || "",
         phone: initialData.phone || "",
-        company_type: initialData.company_type || "",
-        TIN_number: initialData.TIN_number || "",
-        licence_number: initialData.licence_number || "",
-        state: initialData.state || "active",
-        registration_date:
-          initialData.registration_date ||
-          new Date().toISOString().split("T")[0],
+        companyType: initialData.company_type || "",
+        TIN: initialData.TIN_number || "",
+        status: initialData.status === 1 ? "active" : "inactive",
+        registrationDate: initialData.create_at || new Date().toISOString().split('T')[0],
       });
     }
-  }, [initialData, isEdit]);
+  }, [isEdit, initialData]);
 
-  // ** Handle Input Change
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
+    setFormData(prev => ({
       ...prev,
-      [name]: value,
+      [name]: value
     }));
   };
 
-  // ** Handle Date Change
-  const handleDateChange = (date) => {
-    const selectedDate = date[0]
-      ? date[0].toISOString().split("T")[0]
-      : new Date().toISOString().split("T")[0];
-    setFormData((prev) => ({
-      ...prev,
-      registration_date: selectedDate,
-    }));
-  };
-
-  // ** Handle Form Submit
   const handleSubmit = (e) => {
     e.preventDefault();
-
-    // Validate required fields
-    if (!formData.company_name || !formData.leader_name || !formData.phone) {
-      alert("Please fill in required fields");
-      return;
-    }
-
-    console.log("Form data to submit:", formData);
-
-    // Call onSuccess callback with form data
-    if (onSuccess) {
-      onSuccess(formData);
-    }
-
-    // Reset form only for add mode
-    if (!isEdit) {
-      setFormData({
-        company_name: "",
-        leader_name: "",
-        phone: "",
-        company_type: "",
-        TIN_number: "",
-        licence_number: "",
-        state: "active",
-        registration_date: new Date().toISOString().split("T")[0],
-      });
-    }
-  };
-
-  // ** Handle Cancel
-  const handleCancel = () => {
-    // Reset form only for add mode
-    if (!isEdit) {
-      setFormData({
-        company_name: "",
-        leader_name: "",
-        phone: "",
-        company_type: "",
-        TIN_number: "",
-        licence_number: "",
-        state: "active",
-        registration_date: new Date().toISOString().split("T")[0],
-      });
-    }
-
-    // Call onCancel callback
-    if (onCancel) {
-      onCancel();
-    }
+    onSuccess(formData);
   };
 
   return (
-    <Fragment>
-      <div className="content-header">
-        <h5 className="mb-0">
-          {isEdit ? t("edit_company") : t("add_new_company")}
-        </h5>
-        <small className="text-muted">
-          {isEdit ? t("edit_company_info") : t("enter_company_info")}
-        </small>
-      </div>
-      <Form onSubmit={handleSubmit}>
-        <Row>
-          <Col md="3" className="mb-1">
-            <Label className="form-label" htmlFor="company_name">
-              {t("company_name")} *
+    <Form onSubmit={handleSubmit}>
+      <Row>
+        <Col md="6">
+          <FormGroup>
+            <Label for="companyName">
+              {t("company_name") || "Company Name"} *
             </Label>
             <Input
-              type="text"
-              name="company_name"
-              id="company_name"
-              placeholder={t("company_name_placeholder") || "Company Name"}
-              value={formData.company_name}
-              onChange={handleInputChange}
+              id="companyName"
+              name="companyName"
+              placeholder="Enter company name"
+              value={formData.companyName}
+              onChange={handleChange}
               required
+              disabled={loading}
             />
-          </Col>
-
-          <Col md="3" className="mb-1">
-            <Label className="form-label" htmlFor="leader_name">
-              {t("leader_name")}
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="leaderName">
+              {t("leader_name") || "Leader Name"} *
             </Label>
             <Input
-              type="text"
-              name="leader_name"
-              id="leader_name"
-              placeholder={t("company_leader_placeholder") || "Leader Name"}
-              value={formData.leader_name}
-              onChange={handleInputChange}
+              id="leaderName"
+              name="leaderName"
+              placeholder="Enter leader name"
+              value={formData.leaderName}
+              onChange={handleChange}
               required
+              disabled={loading}
             />
-          </Col>
-
-          <Col md="3" className="mb-1">
-            <Label className="form-label" htmlFor="phone">
-              {t("phone")}
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="phone">
+              {t("phone") || "Phone"} *
             </Label>
             <Input
-              type="number"
-              name="phone"
               id="phone"
-              placeholder={t("phone_number") || "Phone Number"}
+              name="phone"
+              placeholder="Enter phone number"
               value={formData.phone}
-              onChange={handleInputChange}
+              onChange={handleChange}
               required
+              disabled={loading}
             />
-          </Col>
-
-          <Col md="3" className="mb-1">
-            <Label className="form-label" htmlFor="company_type">
-              {t("company_type")}
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="companyType">
+              {t("company_type") || "Company Type"} *
             </Label>
             <Input
+              id="companyType"
+              name="companyType"
+              placeholder="Enter company type"
+              value={formData.companyType}
+              onChange={handleChange}
+              required
+              disabled={loading}
+            />
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="TIN">
+              {t("TIN_number") || "TIN Number"} *
+            </Label>
+            <Input
+              id="TIN"
+              name="TIN"
+              placeholder="Enter TIN number"
+              value={formData.TIN}
+              onChange={handleChange}
+              required
+              disabled={loading}
+            />
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="status">
+              {t("status") || "Status"}
+            </Label>
+            <Input
+              id="status"
+              name="status"
               type="select"
-              name="company_type"
-              id="company_type"
-              placeholder={t("company_type") || "company_type"}
-              value={formData.company_type}
-              onChange={handleInputChange}
-              required
+              value={formData.status}
+              onChange={handleChange}
+              disabled={loading}
             >
-               <option value="contract">{t("contract") || "contract"}</option>
-               <option value="khosh-kharid">{t("khosh-kharid") || "khosh-kharid"}</option>
-               <option value="process">{t("process") || "process"}</option>
-               <option value="control">{t("control") || "control"}</option>
-               </Input>
-          </Col>
-
-          <Col md="3" className="mb-1">
-            <Label className="form-label" htmlFor="TIN_number">
-              {t("TIN_number")}
-            </Label>
-            <Input
-              type="number"
-              name="TIN_number"
-              id="TIN_number"
-              placeholder={t("tin_number") || "TIN Number"}
-              value={formData.TIN_number}
-              onChange={handleInputChange}
-            />
-          </Col>
-
-          <Col md="3" className="mb-1">
-            <Label className="form-label" htmlFor="licence_number">
-              {t("licence_number")}
-            </Label>
-            <Input
-              type="tel"
-              name="licence_number"
-              id="licence_number"
-              placeholder={t("permit_number") || "Licence Number"}
-              value={formData.licence_number}
-              onChange={handleInputChange}
-            />
-          </Col>
-
-          <Col md="3" className="mb-1">
-            <Label className="form-label" htmlFor="state">
-              {t("state")}
-            </Label>
-            <Input
-              type="select"
-              name="state"
-              id="state"
-              value={formData.state}
-              onChange={handleInputChange}
-              required
-            >
-              <option value="active">{t("active") || "Active"}</option>
-              <option value="inactive">{t("inactive") || "Inactive"}</option>
-              <option value="tamded">{t("tamded") || "Tamded"}</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
             </Input>
-          </Col>
+          </FormGroup>
+        </Col>
 
-          <Col md="3" className="mb-1">
-            <Label className="form-label" htmlFor="registration_date">
-              {t("registration_date")}
+        <Col md="6">
+          <FormGroup>
+            <Label for="registrationDate">
+              {t("registration_date") || "Registration Date"}
             </Label>
-            <Flatpickr
-              className="form-control"
-              id="registration_date"
-              value={formData.registration_date}
-              onChange={handleDateChange}
-              options={{ dateFormat: "Y-m-d" }}
-              required
+            <Input
+              id="registrationDate"
+              name="registrationDate"
+              type="date"
+              value={formData.registrationDate}
+              onChange={handleChange}
+              disabled={loading || isEdit}
             />
-          </Col>
-        </Row>
-
-        {/* Save and Cancel Buttons */}
-        <div className="d-flex justify-content-end mt-2">
-          <Button
-            color="secondary"
-            className="me-1"
-            onClick={handleCancel}
-            disabled={loading}
-          >
-            <X size={14} className="align-middle me-50" />
-            <span className="align-middle">{t("cancel")}</span>
-          </Button>
-
-          <Button color="primary" type="submit" disabled={loading}>
-            {loading ? (
-              <>
-                <Spinner size="sm" className="me-50" />
-                {t("saving")}
-              </>
-            ) : (
-              <>
-                <Save size={14} className="align-middle me-50" />
-                <span className="align-middle">
-                  {isEdit ? t("update") || "Update" : t("save") || "Save"}
-                </span>
-              </>
-            )}
-          </Button>
-        </div>
-      </Form>
-    </Fragment>
+          </FormGroup>
+        </Col>
+      </Row>
+      
+      <div className="d-flex justify-content-end mt-3">
+        <Button
+          color="secondary"
+          onClick={onCancel}
+          className="me-2"
+          disabled={loading}
+        >
+          {t("cancel") || "Cancel"}
+        </Button>
+        <Button
+          color="primary"
+          type="submit"
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <Spinner size="sm" className="me-2" />
+              {isEdit ? "Updating..." : "Adding..."}
+            </>
+          ) : (
+            isEdit ? t("update_company") || "Update Company" : t("add_company") || "Add Company"
+          )}
+        </Button>
+      </div>
+    </Form>
   );
-};
-
-// PropTypes
-AddNewCompany.propTypes = {
-  onSuccess: PropTypes.func,
-  onCancel: PropTypes.func,
-  loading: PropTypes.bool,
-  initialData: PropTypes.object,
-  isEdit: PropTypes.bool,
-};
-
-// Default props
-AddNewCompany.defaultProps = {
-  onSuccess: () => {},
-  onCancel: () => {},
-  loading: false,
-  initialData: null,
-  isEdit: false,
 };
 
 export default AddNewCompany;

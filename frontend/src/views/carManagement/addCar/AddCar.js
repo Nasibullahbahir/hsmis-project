@@ -1,309 +1,286 @@
-// ** React Imports
-import { Fragment, useState, useEffect } from "react";
-import PropTypes from "prop-types";
-
-// ** Icons Imports
-import { Save, X } from "react-feather";
-
-// ** i18n
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-
-// ** Reactstrap Imports
-import { Label, Row, Col, Form, Input, Button, Spinner } from "reactstrap";
+import {
+  Form,
+  FormGroup,
+  Label,
+  Input,
+  Button,
+  Row,
+  Col,
+  Spinner,
+} from "reactstrap";
 
 const AddCar = ({ 
   onSuccess, 
   onCancel, 
-  selectedCompany, 
-  isEdit = false, 
-  initialData,
-  loading = false 
+  initialData, 
+  loading, 
+  isEdit, 
+  selectedCompany,
+  vehicleTypes = [],
+  fromCompany = false  // Add this prop
 }) => {
   const { t } = useTranslation();
-
-  // ** Form State
+  
+  // Form state - ADD companies field
   const [formData, setFormData] = useState({
     carName: "",
-    carType: "",
     plateNumber: "",
     driverName: "",
-    companyName: "",
-    emptyCarWeight: "",
+    emptyWeight: "",
+    vehicleType: "",
     status: "active",
-    // lastMaintenance: ""
+    registrationDate: new Date().toISOString().split('T')[0],
+    companies: []  // Add companies array
   });
 
-  // ** Initialize form with data
+  // Set initial data if editing
   useEffect(() => {
-    if (selectedCompany) {
-      setFormData(prev => ({
-        ...prev,
-        companyName: selectedCompany.company_name
-      }));
-    }
-    
     if (isEdit && initialData) {
+      // Extract company IDs from the companies array
+      const companyIds = initialData.companies && Array.isArray(initialData.companies) 
+        ? initialData.companies.map(comp => 
+            typeof comp === 'object' ? comp.id : comp
+          )
+        : [];
+      
       setFormData({
         carName: initialData.car_name || "",
-        carType: initialData.car_type || "",
         plateNumber: initialData.plate_number || "",
         driverName: initialData.driver_name || "",
-        companyName: initialData.company_name || "",
-        emptyCarWeight: initialData.empty_car_weight || "",
-        status: initialData.status || "active",
+        emptyWeight: initialData.empty_weight || "",
+        vehicleType: initialData.vehicle_type?.id || "",
+        status: initialData.status === 1 ? "active" : "inactive",
+        registrationDate: initialData.create_at || new Date().toISOString().split('T')[0],
+        companies: companyIds
       });
+    } else if (!isEdit && selectedCompany && fromCompany) {
+      // When adding from company view, pre-populate with the selected company
+      setFormData(prev => ({
+        ...prev,
+        companies: [selectedCompany.id]
+      }));
     }
-  }, [selectedCompany, isEdit, initialData]);
+  }, [isEdit, initialData, selectedCompany, fromCompany]);
 
-  // ** Handle Input Change
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
+    setFormData(prev => ({
       ...prev,
-      [name]: value,
+      [name]: value
     }));
   };
 
-  // ** Handle Form Submit
   const handleSubmit = (e) => {
     e.preventDefault();
-
-    // Validate required fields
-    if (!formData.carName || !formData.plateNumber || !formData.driverName) {
-      alert("Please fill in required fields");
-      return;
-    }
-
-    console.log("Form data to submit:", formData);
-
-    // Call onSuccess callback with form data
-    if (onSuccess) {
-      onSuccess(formData);
-    }
-
-    // Reset form only for add mode
-    if (!isEdit) {
-      setFormData({
-        carName: "",
-        carType: "",
-        plateNumber: "",
-        driverName: "",
-        companyName: selectedCompany ? selectedCompany.company_name : "",
-        emptyCarWeight: "",
-        status: "active",
-        // lastMaintenance: ""
-      });
-    }
-  };
-
-  // ** Handle Cancel
-  const handleCancel = () => {
-    // Reset form only for add mode
-    if (!isEdit) {
-      setFormData({
-        carName: "",
-        carType: "",
-        plateNumber: "",
-        driverName: "",
-        companyName: selectedCompany ? selectedCompany.company_name : "",
-        emptyCarWeight: "",
-        status: "active",
-      });
-    }
-
-    // Call onCancel callback
-    if (onCancel) {
-      onCancel();
-    }
+    
+    // Prepare the data to send
+    const submissionData = {
+      ...formData,
+      // Ensure companies is always an array
+      companies: formData.companies && formData.companies.length > 0 
+        ? formData.companies 
+        : (selectedCompany && fromCompany ? [selectedCompany.id] : [])
+    };
+    
+    console.log("Submitting vehicle data:", submissionData);
+    onSuccess(submissionData);
   };
 
   return (
-    <Fragment>
-      <div className="content-header">
-        <h5 className="mb-0">
-          {isEdit ? t("edit_car") : t("add_car")}
-        </h5>
-        <small className="text-muted">
-          {isEdit ? t("edit_car_details") : t("enter_car_details")}
-        </small>
-      </div>
-      <Form onSubmit={handleSubmit}>
-        <Row>
-
-          <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="carName">
-              {t("car_name")} *
+    <Form onSubmit={handleSubmit}>
+      <Row>
+        <Col md="6">
+          <FormGroup>
+            <Label for="carName">
+              {t("car_name") || "Car Name"} *
             </Label>
             <Input
-              type="text"
               id="carName"
               name="carName"
-              placeholder="Toyota Hilux"
+              placeholder="Enter car name"
               value={formData.carName}
-              onChange={handleInputChange}
+              onChange={handleChange}
               required
+              disabled={loading}
             />
-          </Col>
-
-          <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="carType">
-              {t("car_type")}
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="plateNumber">
+              {t("plate_number") || "Plate Number"} *
             </Label>
             <Input
-              type="select"
-              id="carType"
-              name="carType"
-              value={formData.carType}
-              onChange={handleInputChange}
-            >
-              <option value="">{t("select_type") || "Select Type"}</option>
-              <option value="sedan">{t("sedan") || "Sedan"}</option>
-              <option value="pickup">{t("pickup") || "Pickup Truck"}</option>
-              <option value="suv">{t("suv") || "SUV"}</option>
-              <option value="truck">{t("truck") || "Truck"}</option>
-              <option value="van">{t("van") || "Van"}</option>
-            </Input>
-          </Col>
-
-          <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="plateNumber">
-              {t("plate_number")} *
-            </Label>
-            <Input
-              type="text"
               id="plateNumber"
               name="plateNumber"
-              placeholder="KBL-1234"
+              placeholder="Enter plate number"
               value={formData.plateNumber}
-              onChange={handleInputChange}
+              onChange={handleChange}
               required
+              disabled={loading}
             />
-          </Col>
-
-          <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="driverName">
-              {t("driver_name")} *
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="driverName">
+              {t("driver_name") || "Driver Name"} *
             </Label>
             <Input
-              type="text"
               id="driverName"
               name="driverName"
-              placeholder="Ahmad Khan"
+              placeholder="Enter driver name"
               value={formData.driverName}
-              onChange={handleInputChange}
+              onChange={handleChange}
               required
+              disabled={loading}
             />
-          </Col>
-
-          <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="companyName">
-              {t("company_name")}
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="emptyWeight">
+              {t("empty_weight") || "Empty Weight (kg)"} *
             </Label>
             <Input
-              type="select"
-              name="companyName"
-              id="companyName"
-              value={formData.companyName}
-              onChange={handleInputChange}
-              disabled={!!selectedCompany}
-            >
-              <option value="">{t("select_company") || "Select Company"}</option>
-              <option value="Company 1">Company 1</option>
-              <option value="Company 2">Company 2</option>
-              <option value="Company 3">Company 3</option>
-              <option value="Company 4">Company 4</option>
-            </Input>
-            {selectedCompany && (
-              <small className="text-info">
-                {t("company_auto_selected") || "Company auto-selected from company view"}
-              </small>
-            )}
-          </Col>
-
-          <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="emptyCarWeight">
-              {t("empty_car_weight")} (TON)
-            </Label>
-            <Input
+              id="emptyWeight"
+              name="emptyWeight"
               type="number"
-              name="emptyCarWeight"
-              id="emptyCarWeight"
-              placeholder="1800"
-              value={formData.emptyCarWeight}
-              onChange={handleInputChange}
+              min="0"
+              placeholder="Enter empty weight"
+              value={formData.emptyWeight}
+              onChange={handleChange}
+              required
+              disabled={loading}
             />
-          </Col>
-
-          <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="status">
-              {t("status")}
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="vehicleType">
+              {t("vehicle_type") || "Vehicle Type"}
             </Label>
             <Input
+              id="vehicleType"
+              name="vehicleType"
               type="select"
-              name="status"
-              id="status"
-              value={formData.status}
-              onChange={handleInputChange}
+              value={formData.vehicleType}
+              onChange={handleChange}
+              disabled={loading}
             >
-              <option value="active">{t("active") || "Active"}</option>
-              <option value="inactive">{t("inactive") || "Inactive"}</option>
+              <option value="">Select Vehicle Type</option>
+              {vehicleTypes.map(type => (
+                <option key={type.id} value={type.id}>
+                  {type.truck_name}
+                </option>
+              ))}
             </Input>
+          </FormGroup>
+        </Col>
+        
+        <Col md="6">
+          <FormGroup>
+            <Label for="status">
+              {t("status") || "Status"}
+            </Label>
+            <Input
+              id="status"
+              name="status"
+              type="select"
+              value={formData.status}
+              onChange={handleChange}
+              disabled={loading}
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Input>
+          </FormGroup>
+        </Col>
+
+        {/* Display selected company information */}
+        {selectedCompany && fromCompany && (
+          <Col md="12">
+            <FormGroup>
+              <Label>Company</Label>
+              <Input
+                type="text"
+                value={selectedCompany.company_name}
+                disabled
+                readOnly
+              />
+              <small className="text-muted">
+                This vehicle will be associated with {selectedCompany.company_name}
+              </small>
+            </FormGroup>
           </Col>
+        )}
 
-       
-        </Row>
-
-        {/* Save and Cancel Buttons */}
-        <div className="d-flex justify-content-end mt-2">
-          <Button
-            color="secondary"
-            className="me-1"
-            onClick={handleCancel}
-            disabled={loading}
-          >
-            <X size={14} className="align-middle me-50" />
-            <span className="align-middle">{t("cancel")}</span>
-          </Button>
-
-          <Button color="primary" type="submit" disabled={loading}>
-            {loading ? (
-              <>
-                <Spinner size="sm" className="me-50" />
-                {t("saving")}
-              </>
-            ) : (
-              <>
-                <Save size={14} className="align-middle me-50" />
-                <span className="align-middle">
-                  {isEdit ? t("update") || "Update" : t("save") || "Save"}
-                </span>
-              </>
-            )}
-          </Button>
-        </div>
-      </Form>
-    </Fragment>
+        {/* Optional: Add a companies multi-select for when NOT in company view */}
+        {!fromCompany && (
+          <Col md="12">
+            <FormGroup>
+              <Label for="companies">
+                {t("associate_companies") || "Associate with Companies"} (Optional)
+              </Label>
+              <Input
+                id="companies"
+                name="companies"
+                type="select"
+                multiple
+                value={formData.companies}
+                onChange={(e) => {
+                  const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+                  setFormData(prev => ({
+                    ...prev,
+                    companies: selectedOptions
+                  }));
+                }}
+                disabled={loading}
+              >
+                <option value="">Select Companies (Hold Ctrl to select multiple)</option>
+                {/* You would need to pass companies list as prop or fetch it here */}
+                <option value="" disabled>Companies list not available</option>
+              </Input>
+              <small className="text-muted">
+                Select companies this vehicle belongs to. Leave empty if not associated with any company.
+              </small>
+            </FormGroup>
+          </Col>
+        )}
+      </Row>
+      
+      <div className="d-flex justify-content-end mt-3">
+        <Button
+          color="secondary"
+          onClick={onCancel}
+          className="me-2"
+          disabled={loading}
+        >
+          {t("cancel") || "Cancel"}
+        </Button>
+        <Button
+          color="primary"
+          type="submit"
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <Spinner size="sm" className="me-2" />
+              {isEdit ? "Updating..." : "Adding..."}
+            </>
+          ) : (
+            isEdit ? t("update_vehicle") || "Update Vehicle" : t("add_vehicle") || "Add Vehicle"
+          )}
+        </Button>
+      </div>
+    </Form>
   );
-};
-
-// PropTypes
-AddCar.propTypes = {
-  onSuccess: PropTypes.func,
-  onCancel: PropTypes.func,
-  selectedCompany: PropTypes.object,
-  isEdit: PropTypes.bool,
-  initialData: PropTypes.object,
-  loading: PropTypes.bool,
-};
-
-// Default props
-AddCar.defaultProps = {
-  onSuccess: () => {},
-  onCancel: () => {},
-  selectedCompany: null,
-  isEdit: false,
-  initialData: null,
-  loading: false,
 };
 
 export default AddCar;

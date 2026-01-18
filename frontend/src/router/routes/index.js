@@ -71,7 +71,7 @@ const Routes = [
     },
   },
   {
-    path: "/car-management",
+    path: "/vehicles",
     element: <CarTable />,
     meta: {
       layout: "vertical",

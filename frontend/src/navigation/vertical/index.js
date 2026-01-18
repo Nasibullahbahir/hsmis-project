@@ -27,27 +27,22 @@ export const useVerticalNavigation = () => {
       navLink: "/company-management",
       className: "nav-link",
     },
-    // {
-    //   id: "khosh_kharid",
-    //   title: t("navigation.contract_info"),
-    //   icon: CheckSquare,
-    //   navLink: "/khosh-kharid",
-    //   className: "nav-link",
-    // },
+   
     {
-      id: "car_management", // FIXED: Changed from "add_car" to "car_management"
-      title: t("navigation.car_management"), // Update translation key
+      id: "car_management", 
+      title: t("navigation.car_management"),
       icon: Truck,
-      navLink: "/car-management", // FIXED: Point to car-management route
+      navLink: "/vehicles",
       className: "nav-link",
     },
-    // {
-    //   id: "maktoob",
-    //   title: t("navigation.maktoob"),
-    //   icon: FileText,
-    //   navLink: "/maktoob",
+    //  {
+    //   id: "vechicles", 
+    //   title: t("navigation.vehicles"),
+    //   icon: Truck,
+    //   navLink: "/vechicles",
     //   className: "nav-link",
-    // },
+    // }
+    
   ];
 };
 
