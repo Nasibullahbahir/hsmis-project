@@ -5,7 +5,7 @@ import LanguageDetector from "i18next-browser-languagedetector";
 
 // Import translation files
 import en from "./en.json";
-import ps from "./pa.json";
+import ps from "./ps.json";
 import dr from "./dr.json";
 
 const resources = {

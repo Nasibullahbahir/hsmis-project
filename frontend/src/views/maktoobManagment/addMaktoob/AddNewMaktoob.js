@@ -1,12 +1,14 @@
 // ** React Imports
-import { Fragment, useState, useEffect } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 
 // ** Third Party Components
 import { Save } from "react-feather";
 
 // ** Reactstrap Imports
-import { Label, Row, Col, Form, Input, Button, Spinner } from "reactstrap";
+import { Label, Row, Col, Form, Input, Button, Spinner, Alert } from "reactstrap";
+
+import MultiCalendarDatePicker from "../../MultiCalendarDatePicker";
 
 // ** i18n
 import { useTranslation } from "react-i18next";
@@ -18,12 +20,15 @@ const AddNewMaktoob = ({
   isEdit = false,
   initialData,
   loading = false,
-  users = [],
   companies = [],
+  existingMaktoobNumbers = [], // New prop for existing maktoob numbers
 }) => {
   const { t } = useTranslation();
+  
+  // ** Refs
+  const maktoobNumberInputRef = useRef(null);
 
-  // ** Form State - Based on Django model fields
+  // ** Form State
   const [formData, setFormData] = useState({
     maktoob_type: "maktoob-contract",
     maktoob_number: "",
@@ -33,19 +38,43 @@ const AddNewMaktoob = ({
     end_date: "",
     description: "",
     company: "",
-    user: "",
+  });
+
+  // ** Error State
+  const [errors, setErrors] = useState({
+    maktoob_number: "",
+    company: "",
   });
 
   // ** Initialize form with data
   useEffect(() => {
     if (selectedCompany) {
+      console.log("Selected company from parent:", selectedCompany);
       setFormData((prev) => ({
         ...prev,
-        company: selectedCompany.id,
+        company: selectedCompany.id || selectedCompany.toString(),
+      }));
+      
+      // Clear any company errors when company is auto-selected
+      setErrors((prev) => ({
+        ...prev,
+        company: "",
       }));
     }
 
     if (isEdit && initialData) {
+      // For edit mode, preserve the existing company
+      let companyValue = "";
+      if (initialData.company?.id) {
+        companyValue = initialData.company.id.toString();
+      } else if (typeof initialData.company === "number") {
+        companyValue = initialData.company.toString();
+      } else if (typeof initialData.company === "string") {
+        companyValue = initialData.company;
+      } else if (initialData.company_id) {
+        companyValue = initialData.company_id.toString();
+      }
+      
       setFormData({
         maktoob_type: initialData.maktoob_type || "maktoob-contract",
         maktoob_number: initialData.maktoob_number?.toString() || "",
@@ -54,49 +83,123 @@ const AddNewMaktoob = ({
         start_date: initialData.start_date || "",
         end_date: initialData.end_date || "",
         description: initialData.description || "",
-        company: initialData.company?.id?.toString() || "",
-        user: initialData.user?.id?.toString() || "",
+        company: companyValue,
+      });
+      
+      // Clear errors on edit initialization
+      setErrors({
+        maktoob_number: "",
+        company: "",
       });
     }
   }, [selectedCompany, isEdit, initialData]);
 
-  // ** Handle Input Change
+  // ** Validate maktoob number uniqueness
+  const validateMaktoobNumber = (value) => {
+    const errorsCopy = { ...errors };
+    
+    if (!value.trim()) {
+      errorsCopy.maktoob_number = t("Maktoob Number is required");
+      return errorsCopy;
+    }
+
+    const maktoobNumber = parseInt(value);
+    if (isNaN(maktoobNumber)) {
+      errorsCopy.maktoob_number = t("Maktoob Number must be a valid number");
+      return errorsCopy;
+    }
+
+    // Check if maktoob number already exists (only for new entries or when number changes)
+    if (!isEdit || (isEdit && initialData && initialData.maktoob_number !== value)) {
+      if (existingMaktoobNumbers.includes(maktoobNumber)) {
+        errorsCopy.maktoob_number = t("This maktoob number already exists. Please use a different number.");
+        return errorsCopy;
+      }
+    }
+
+    // Clear error if valid
+    errorsCopy.maktoob_number = "";
+    return errorsCopy;
+  };
+
+  // ** Handle Input Change with validation
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    
+
     setFormData((prev) => ({
       ...prev,
       [name]: value,
     }));
+
+    // Real-time validation for maktoob number
+    if (name === "maktoob_number") {
+      const validationErrors = validateMaktoobNumber(value);
+      setErrors(validationErrors);
+    }
+  };
+
+  // ** Handle Date Change
+  const handleDateChange = (name, date) => {
+    setFormData((prev) => ({
+      ...prev,
+      [name]: date,
+    }));
+  };
+
+  // ** Validate Form
+  const validateForm = () => {
+    const newErrors = {
+      maktoob_number: "",
+      company: "",
+    };
+
+    // Validate maktoob number
+    if (!formData.maktoob_number.trim()) {
+      newErrors.maktoob_number = t("Maktoob Number is required");
+    } else {
+      const maktoobNumber = parseInt(formData.maktoob_number);
+      if (isNaN(maktoobNumber)) {
+        newErrors.maktoob_number = t("Maktoob Number must be a valid number");
+      } else if (!isEdit && existingMaktoobNumbers.includes(maktoobNumber)) {
+        newErrors.maktoob_number = t("This maktoob number already exists. Please use a different number.");
+      }
+    }
+
+    // Validate company (only if not in company view)
+    if (!selectedCompany && !formData.company) {
+      newErrors.company = t("Company is required");
+    }
+
+    setErrors(newErrors);
+    
+    // Check if any errors exist
+    return Object.values(newErrors).every(error => !error);
   };
 
   // ** Handle Form Submit
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    // Validate required fields
-    if (!formData.maktoob_number) {
-      alert("Maktoob Number is required");
+    // Validate form
+    if (!validateForm()) {
+      // Focus on first error field
+      if (errors.maktoob_number) {
+        maktoobNumberInputRef.current?.focus();
+      }
       return;
     }
 
-    if (!formData.company && !selectedCompany) {
-      alert("Company is required");
-      return;
+    // Ensure company is set (for company view)
+    const finalFormData = { ...formData };
+    if (selectedCompany && !finalFormData.company) {
+      finalFormData.company = selectedCompany.id || selectedCompany.toString();
     }
 
-    // Validate maktoob number is a valid number
-    const maktoobNumber = parseInt(formData.maktoob_number);
-    if (isNaN(maktoobNumber)) {
-      alert("Maktoob Number must be a valid number");
-      return;
-    }
-
-    console.log("Form data to submit:", formData);
+    console.log("Form data to submit:", finalFormData);
 
     // Call onSuccess callback with form data
     if (onSuccess) {
-      onSuccess(formData);
+      onSuccess(finalFormData);
     }
 
     // Reset form only for add mode
@@ -109,20 +212,54 @@ const AddNewMaktoob = ({
         start_date: "",
         end_date: "",
         description: "",
-        company: selectedCompany ? selectedCompany.id : "",
-        user: "",
+        company: selectedCompany ? (selectedCompany.id || selectedCompany.toString()) : "",
       });
+      
+      // Clear errors
+      setErrors({
+        maktoob_number: "",
+        company: "",
+      });
+    }
+  };
+
+  // ** Handle Cancel
+  const handleCancel = () => {
+    // Clear form and errors
+    setFormData({
+      maktoob_type: "maktoob-contract",
+      maktoob_number: "",
+      sadir_date: "",
+      source: "",
+      start_date: "",
+      end_date: "",
+      description: "",
+      company: selectedCompany ? (selectedCompany.id || selectedCompany.toString()) : "",
+    });
+    
+    setErrors({
+      maktoob_number: "",
+      company: "",
+    });
+    
+    // Call parent cancel callback
+    if (onCancel) {
+      onCancel();
     }
   };
 
   return (
     <Fragment>
       <div className="content-header">
-        <h5 className="mb-0">
-          {isEdit ? t("edit_maktoob") : t("add_new_maktoob")}
-        </h5>
+        {selectedCompany && (
+          <Alert color="info" className="py-2 mb-2">
+            <small>
+              <strong>{t("Company:")}</strong> {selectedCompany.company_name}
+            </small>
+          </Alert>
+        )}
         <small className="text-muted">
-          {isEdit ? t("edit_maktoob_info") : t("add_maktoob_info")}
+          {isEdit ? t("edit_maktoob_info") : t("add_new_maktoob_info")}
         </small>
       </div>
       <Form onSubmit={handleSubmit}>
@@ -155,26 +292,33 @@ const AddNewMaktoob = ({
               {t("maktoob_number")} *
             </Label>
             <Input
+              innerRef={maktoobNumberInputRef}
               type="number"
               name="maktoob_number"
               id="maktoob_number"
               placeholder="12345"
               value={formData.maktoob_number}
               onChange={handleInputChange}
+              onBlur={(e) => {
+                const validationErrors = validateMaktoobNumber(e.target.value);
+                setErrors(validationErrors);
+              }}
+              invalid={!!errors.maktoob_number}
               required
             />
+            {errors.maktoob_number && (
+              <div className="text-danger mt-1 small">{errors.maktoob_number}</div>
+            )}
           </Col>
 
           <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="sadir_date">
-              {t("sadir_date")}
-            </Label>
-            <Input
-              type="date"
-              name="sadir_date"
-              id="sadir_date"
+            <MultiCalendarDatePicker
+              label={t("sadir_date")}
               value={formData.sadir_date}
-              onChange={handleInputChange}
+              onChange={(date) => handleDateChange("sadir_date", date)}
+              wrapperClassName="compose-mail-form-field"
+              labelClassName="form-label"
+              inputClassName="form-control"
             />
           </Col>
 
@@ -186,99 +330,86 @@ const AddNewMaktoob = ({
               type="text"
               name="source"
               id="source"
-              placeholder={t("source_placeholder") || "Enter source"}
+              placeholder={t("source_placeholder")}
               value={formData.source}
               onChange={handleInputChange}
             />
           </Col>
-
+          
           <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="start_date">
-              {t("start_date")}
-            </Label>
-            <Input
-              type="date"
-              name="start_date"
-              id="start_date"
+            <MultiCalendarDatePicker
+              label={t("start_date")}
               value={formData.start_date}
-              onChange={handleInputChange}
+              onChange={(date) => handleDateChange("start_date", date)}
             />
           </Col>
 
           <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="end_date">
-              {t("end_date")}
-            </Label>
-            <Input
-              type="date"
-              name="end_date"
-              id="end_date"
+            <MultiCalendarDatePicker
+              label={t("end_date")}
               value={formData.end_date}
-              onChange={handleInputChange}
+              onChange={(date) => handleDateChange("end_date", date)}
             />
           </Col>
 
-          {/* Company selection - Only show if not from a specific company view */}
+          {/* Company selection - Only show if not in company view */}
           {!selectedCompany && (
             <Col md="4" className="mb-1">
               <Label className="form-label" htmlFor="company">
                 {t("company")} *
               </Label>
-              <Input
-                type="select"
-                name="company"
-                id="company"
-                value={formData.company}
-                onChange={handleInputChange}
-                required={!selectedCompany}
-              >
-                <option value="">{t("select_company")}</option>
-                {companies.map((company) => (
-                  <option key={company.id} value={company.id}>
-                    {company.company_name}
-                  </option>
-                ))}
-              </Input>
+              {companies.length === 0 ? (
+                <div className="alert alert-warning py-1">
+                  <small>{t("No companies available")}</small>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    type="select"
+                    name="company"
+                    id="company"
+                    value={formData.company}
+                    onChange={handleInputChange}
+                    required={!selectedCompany}
+                    invalid={!!errors.company}
+                  >
+                    <option value="">{t("select_company")}</option>
+                    {companies.map((company) => (
+                      <option key={company.id} value={company.id}>
+                        {company.company_name}
+                      </option>
+                    ))}
+                  </Input>
+                  {errors.company && (
+                    <div className="text-danger mt-1 small">{errors.company}</div>
+                  )}
+                </>
+              )}
             </Col>
           )}
 
+          {/* Display selected company (read-only) when in company view */}
           {selectedCompany && (
             <Col md="4" className="mb-1">
-              <Label className="form-label">
-                {t("company")}
-              </Label>
+              <Label className="form-label">{t("company")}</Label>
               <Input
                 type="text"
                 value={selectedCompany.company_name}
                 disabled
                 readOnly
+                className="bg-light"
               />
-              <small className="text-muted">
-                This maktoob will be associated with {selectedCompany.company_name}
+              <input
+                type="hidden"
+                name="company"
+                value={selectedCompany.id || selectedCompany.toString()}
+              />
+              <small className="text-muted d-block mt-1">
+                {t("This maktoob will be associated with")}{" "}
+                <strong>{selectedCompany.company_name}</strong>
               </small>
             </Col>
           )}
-
-          {/* User selection */}
-          <Col md="4" className="mb-1">
-            <Label className="form-label" htmlFor="user">
-              {t("user")}
-            </Label>
-            <Input
-              type="select"
-              name="user"
-              id="user"
-              value={formData.user}
-              onChange={handleInputChange}
-            >
-              <option value="">{t("select_user")}</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.username}
-                </option>
-              ))}
-            </Input>
-          </Col>
 
           <Col md="12" className="mb-1">
             <Label className="form-label" htmlFor="description">
@@ -291,15 +422,15 @@ const AddNewMaktoob = ({
               value={formData.description}
               onChange={handleInputChange}
               rows="3"
-              placeholder={t("description_placeholder") || "Enter description"}
+              placeholder={t("description_placeholder")}
             />
           </Col>
         </Row>
 
         {/* Save and Cancel Buttons */}
         <div className="d-flex justify-content-end mt-2 gap-1">
-          <Button color="secondary" onClick={onCancel} disabled={loading}>
-            {t("cancel") || "Cancel"}
+          <Button color="secondary" onClick={handleCancel} disabled={loading}>
+            {t("cancel")}
           </Button>
 
           <Button color="primary" type="submit" disabled={loading}>
@@ -312,7 +443,7 @@ const AddNewMaktoob = ({
               <>
                 <Save size={14} className="align-middle me-50" />
                 <span className="align-middle">
-                  {isEdit ? t("update") || "Update" : t("save") || "Save"}
+                  {isEdit ? t("update") : t("save")}
                 </span>
               </>
             )}
@@ -327,12 +458,16 @@ const AddNewMaktoob = ({
 AddNewMaktoob.propTypes = {
   onSuccess: PropTypes.func,
   onCancel: PropTypes.func,
-  selectedCompany: PropTypes.object,
+  selectedCompany: PropTypes.oneOfType([
+    PropTypes.object,
+    PropTypes.string,
+    PropTypes.number,
+  ]),
   isEdit: PropTypes.bool,
   initialData: PropTypes.object,
   loading: PropTypes.bool,
-  users: PropTypes.array,
   companies: PropTypes.array,
+  existingMaktoobNumbers: PropTypes.array, // Array of existing maktoob numbers
 };
 
 // Default props
@@ -343,8 +478,8 @@ AddNewMaktoob.defaultProps = {
   isEdit: false,
   initialData: null,
   loading: false,
-  users: [],
   companies: [],
+  existingMaktoobNumbers: [], // Default empty array
 };
 
 export default AddNewMaktoob;

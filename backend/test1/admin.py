@@ -1,10 +1,26 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db import models
 from . import models
+from .models import User , Userprofile
 
-# Register your models here.
-
-
+@admin.register(User)
+class UserAdmin(BaseUserAdmin):
+   add_fieldsets = (
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": ("username", "usable_password", "password1", "password2", "email", "first_name","last_name"),
+            },
+        ),
+    )
+@admin.register(Userprofile)
+class UserprofileAdmin(admin.ModelAdmin):
+    list_display = ['first_name', 'last_name',]
+    list_per_page = 10
+    list_select_related = ['user']
+    search_fields =['user__first_name__istartswith', 'user__last_name__istartswith']
 
 # @admin.register(models.User)
 # class User(admin.ModelAdmin):
@@ -51,7 +67,8 @@ class VehicleType(admin.ModelAdmin):
         'tire_count',
         'allow_weight_ton',
         'create_at',
-        'update_at'
+        'update_at',
+        'deleted_at',
         ]
 
 @admin.register(models.Vehicle)
@@ -63,9 +80,11 @@ class Vehicle(admin.ModelAdmin):
         'driver_name',
         'empty_weight',
         'status',
-        'vehicle_type',
         'create_at',
-        'vehicle_type'
+        'update_at',
+        'vehicle_type',
+        
+
     ]
     list_filter = ['status', 'vehicle_type']
     search_fields = ['car_name', 'plate_number', 'driver_name']
@@ -77,15 +96,14 @@ class Company(admin.ModelAdmin):
         'company_name',
         'leader_name',
         'phone',
-        'company_type',
         'TIN_number',
         'status',
+        'licence_number',
         'create_at',
         'update_at',
-        # 'vehicle',
-        'user'
+        'user',
+        
     ]
-    list_filter = ['status', 'company_type']
     search_fields = ['company_name', 'TIN_number', 'leader_name']
     filter_horizontal = ['vehicle']
 
@@ -132,7 +150,6 @@ class PurchaseAdmin(admin.ModelAdmin):
         'id',
         'area',
         'mineral_amount',
-        'unit_price',
         'mineral_total_price',
         'royalty_receipt_number',
         'weighing_total_price',
@@ -162,7 +179,6 @@ class Weight(admin.ModelAdmin):
         'second_weight',
         'mineral_net_weight',
         'control_weight',
-        'transfor_type',
         'area',
         'discharge_place',
         'bill_number',
@@ -184,12 +200,13 @@ class Weight(admin.ModelAdmin):
 class BalanceAdmin(admin.ModelAdmin):
     list_display = [
         'id',
-        'mineral_amount',
+        'remaining_mineral_amount',
         'company_type',
         'count_90days',
-        'purchase',
         'create_at',
         'update_at',
+        'mineral',
+        'company',
     ]
     list_filter = ['company_type']
     search_fields = ['purchase__id']

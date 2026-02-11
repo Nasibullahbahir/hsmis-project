@@ -1,24 +1,28 @@
+// PurchaseTable.js - Fixed Pagination Version with Filtered Maktoobs
 // ** React Imports
-import { useState, Fragment, useEffect } from "react";
+import { useState, Fragment, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 
+// ** Import AddNewPurchase Component
+import AddNewPurchase from "./addContractSales/AddNewContractSales";
+
 // ** Third Party Components
-import Flatpickr from "react-flatpickr";
 import ReactPaginate from "react-paginate";
 import {
   ChevronDown,
   Plus,
-  Trash2,
-  ArrowLeft,
   Filter,
   X,
   Edit,
+  Trash2,
+  Database,
+  ArrowLeft,
 } from "react-feather";
 import DataTable from "react-data-table-component";
-import { toast, ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 // ** Reactstrap Imports
 import {
@@ -31,323 +35,1004 @@ import {
   Row,
   Col,
   Button,
+  Collapse,
   Modal,
   ModalHeader,
   ModalBody,
   ModalFooter,
-  Alert,
   Badge,
-  Collapse,
   Spinner,
 } from "reactstrap";
 
-// ** Import AddNewContractSales Component
-import AddNewContractSales from "./addContractSales/AddNewContractSales";
+import gregorianToShamsi from '../gregorianToShamsi';
 
 // ** Styles
 import "@styles/react/libs/flatpickr/flatpickr.scss";
 
-// ** API Base URL - Should be the same as your CompanyTable
+// ** API Base URL
 const API_URL = "http://127.0.0.1:8000/test1";
 
-const ContractSalesTable = () => {
+const PurchaseTable = () => {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
 
-  // ** Get company data from navigation state
-  const { company, fromCompany } = location.state || {};
+  // ** Get company data from navigation
+  const { company: companyFromState, fromCompany: fromCompanyState } = location.state || {};
+  
+  // Get from URL parameters
+  const searchParams = new URLSearchParams(location.search);
+  const companyIdFromUrl = searchParams.get("companyId");
+  const companyNameFromUrl = searchParams.get("companyName");
+
+  const company = companyFromState || 
+    (companyIdFromUrl ? {
+      id: parseInt(companyIdFromUrl),
+      company_name: decodeURIComponent(companyNameFromUrl || ""),
+    } : null);
+
+  const fromCompany = fromCompanyState || !!companyIdFromUrl;
 
   // ** States
-  const [currentPage, setCurrentPage] = useState(0);
-  const [dateRange, setDateRange] = useState("");
-  const [filteredData, setFilteredData] = useState([]);
-  const [contracts, setContracts] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [filterOpen, setFilterOpen] = useState(false);
-
-  // ** Filter States
   const [searchArea, setSearchArea] = useState("");
   const [searchMineralAmount, setSearchMineralAmount] = useState("");
-  const [searchUnitPrice, setSearchUnitPrice] = useState("");
-  const [searchMineralTotalPrice, setSearchMineralTotalPrice] = useState("");
-  const [searchRoyaltyReceiptNumber, setSearchRoyaltyReceiptNumber] = useState("");
-  const [searchHaqWazanReceiptNumber, setSearchHaqWazanReceiptNumber] = useState("");
-  const [searchWeighingTotalPrice, setSearchWeighingTotalPrice] = useState("");
+  const [searchCompany, setSearchCompany] = useState("");
+  const [searchMineral, setSearchMineral] = useState("");
+  const [searchDate, setSearchDate] = useState([]);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [filteredData, setFilteredData] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [dropdownLoading, setDropdownLoading] = useState(false);
+  const [totalPurchases, setTotalPurchases] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [allPurchasesLoaded, setAllPurchasesLoaded] = useState(false);
+
+  // ** Current User State
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // ** Dropdown Data States
+  const [companies, setCompanies] = useState([]);
+  const [allMaktoobs, setAllMaktoobs] = useState([]); // Store ALL maktoobs
+  const [filteredMaktoobs, setFilteredMaktoobs] = useState([]); // Maktoobs filtered by company
+  const [minerals, setMinerals] = useState([]);
+  const [scales, setScales] = useState([]);
+  const [units, setUnits] = useState([]);
+  const [companiesMap, setCompaniesMap] = useState({});
+  const [mineralsMap, setMineralsMap] = useState({});
+  const [scalesMap, setScalesMap] = useState({});
+  const [unitsMap, setUnitsMap] = useState({});
+  const [maktoobsMap, setMaktoobsMap] = useState({});
 
   // ** Modal States
-  const [addContractModal, setAddContractModal] = useState(false);
-  const [editContractModal, setEditContractModal] = useState(false);
+  const [addPurchaseModal, setAddPurchaseModal] = useState(false);
+  const [editPurchaseModal, setEditPurchaseModal] = useState(false);
   const [deleteModal, setDeleteModal] = useState(false);
-  const [selectedContract, setSelectedContract] = useState(null);
+  const [selectedPurchase, setSelectedPurchase] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ** Main filter function
-  const applyFilters = () => {
-    let updatedData = contracts;
+  // ** Pagination states
+  const itemsPerPage = 7;
 
-    // Filter by area
-    if (searchArea) {
-      updatedData = updatedData.filter((item) =>
-        item.area?.toLowerCase().includes(searchArea.toLowerCase())
-      );
-    }
-
-    // Filter by mineral amount
-    if (searchMineralAmount) {
-      updatedData = updatedData.filter((item) =>
-        String(item.mineral_amount || "").includes(searchMineralAmount)
-      );
-    }
-
-    // Filter by unit price
-    if (searchUnitPrice) {
-      updatedData = updatedData.filter((item) =>
-        String(item.unit_price || "").includes(searchUnitPrice)
-      );
-    }
-
-    // Filter by mineral total price
-    if (searchMineralTotalPrice) {
-      updatedData = updatedData.filter((item) =>
-        String(item.mineral_total_price || "").includes(searchMineralTotalPrice)
-      );
-    }
-
-    // Filter by royalty receipt number
-    if (searchRoyaltyReceiptNumber) {
-      updatedData = updatedData.filter((item) =>
-        String(item.royalty_receipt_number || "")
-          .toLowerCase()
-          .includes(searchRoyaltyReceiptNumber.toLowerCase())
-      );
-    }
-
-    // Filter by haq wazan receipt number
-    if (searchHaqWazanReceiptNumber) {
-      updatedData = updatedData.filter((item) =>
-        String(item.haq_wazan_receipt_number || "")
-          .toLowerCase()
-          .includes(searchHaqWazanReceiptNumber.toLowerCase())
-      );
-    }
-
-    // Filter by weighing total price
-    if (searchWeighingTotalPrice) {
-      updatedData = updatedData.filter((item) =>
-        String(item.weighing_total_price || "").includes(searchWeighingTotalPrice)
-      );
-    }
-
-    // Filter by date range
-    if (dateRange && dateRange.length === 2) {
-      const [startDate, endDate] = dateRange;
-      updatedData = updatedData.filter((item) => {
-        if (!item.create_at) return false;
-        const itemDate = new Date(item.create_at);
-        return itemDate >= startDate && itemDate <= endDate;
-      });
-    }
-
-    setFilteredData(updatedData);
+  // ** Get authentication token
+  const getAuthToken = () => {
+    return localStorage.getItem("access_token");
   };
 
-  // ** Fetch contracts from API
-  const fetchContracts = async () => {
-    setLoading(true);
+  // ** Get current user from token or API
+  const getCurrentUser = async () => {
     try {
-      const endpoint = `${API_URL}/purchases/`;
-      let response;
-      
-      // If coming from company view, filter by company
-      if (fromCompany && company) {
-        try {
-          response = await axios.get(endpoint, {
-            params: { company: company.id }
-          });
-        } catch (filterError) {
-          // If filtering fails, get all
-          response = await axios.get(endpoint);
-        }
-      } else {
-        response = await axios.get(endpoint);
+      const token = getAuthToken();
+      if (!token) {
+        return null;
       }
-      
-      let contractsData = response.data || [];
-      
-      // Client-side filtering if coming from company
-      if (fromCompany && company && Array.isArray(contractsData)) {
-        contractsData = contractsData.filter(purchase => {
-          if (purchase.company && typeof purchase.company === 'object') {
-            return purchase.company.id === company.id;
-          } else if (purchase.company) {
-            return purchase.company === company.id;
+
+      // Decode token to get user info
+      const tokenParts = token.split(".");
+      if (tokenParts.length === 3) {
+        const payload = JSON.parse(atob(tokenParts[1]));
+
+        if (payload.user_id || payload.userId || payload.sub) {
+          const userId = payload.user_id || payload.userId || payload.sub;
+
+          if (payload.username || payload.email) {
+            return {
+              id: userId,
+              username: payload.username || payload.email?.split("@")[0] || `User_${userId}`,
+              email: payload.email || `${payload.username}@example.com` || "",
+              displayName: payload.username || payload.email?.split("@")[0] || `User ${userId}`,
+            };
           }
-          return false;
-        });
+        }
       }
-      
-      setContracts(contractsData);
-      setFilteredData(contractsData);
+
+      // If token doesn't have user info, fetch from API
+      const config = getAxiosConfig();
+      const response = await axios.get(`${API_URL}/auth/user/`, config);
+
+      if (response.data) {
+        return {
+          id: response.data.id,
+          username: response.data.username || response.data.email?.split("@")[0],
+          email: response.data.email || "",
+          displayName: response.data.username || response.data.email?.split("@")[0] || `User ${response.data.id}`,
+        };
+      }
+
+      return null;
     } catch (error) {
-      if (error.response?.status === 404) {
-        toast.error("Purchases API endpoint not found. Please check your Django URLs.");
-      } else {
-        toast.error("Failed to load purchases");
-      }
-      setContracts([]);
-      setFilteredData([]);
-    } finally {
-      setLoading(false);
+      console.error("Error fetching current user:", error);
+      return null;
     }
   };
 
-  // ** Initialize data
-  useEffect(() => {
-    fetchContracts();
-  }, [company, fromCompany]);
+  // ** Configure axios headers
+  const getAxiosConfig = () => {
+    const token = getAuthToken();
+    return token
+      ? {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      : {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        };
+  };
 
-  // ** Apply filters automatically when search criteria or contracts change
-  useEffect(() => {
-    applyFilters();
-  }, [
-    searchArea,
-    searchMineralAmount,
-    searchUnitPrice,
-    searchMineralTotalPrice,
-    searchRoyaltyReceiptNumber,
-    searchHaqWazanReceiptNumber,
-    searchWeighingTotalPrice,
-    dateRange,
-    contracts,
-  ]);
+  // ** Utility function to get display value for foreign keys
+  const getDisplayValue = useCallback(
+    (item, field = "name", fallbackFields = []) => {
+      if (!item) return "N/A";
+
+      if (typeof item === "object" && item !== null) {
+        if (item[field] !== undefined && item[field] !== null) {
+          return item[field].toString();
+        }
+
+        for (const fallbackField of fallbackFields) {
+          if (item[fallbackField] !== undefined && item[fallbackField] !== null) {
+            return item[fallbackField].toString();
+          }
+        }
+
+        if (item.company_name !== undefined && item.company_name !== null)
+          return item.company_name.toString();
+        if (item.username !== undefined && item.username !== null)
+          return item.username.toString();
+        if (item.email !== undefined && item.email !== null)
+          return item.email.toString();
+        if (item.maktoob_number !== undefined && item.maktoob_number !== null)
+          return `Maktoob #${item.maktoob_number}`;
+        if (item.scale_number !== undefined && item.scale_number !== null)
+          return `Scale #${item.scale_number}`;
+        if (item.name !== undefined && item.name !== null)
+          return item.name.toString();
+        if (item.id !== undefined && item.id !== null) return `ID: ${item.id}`;
+
+        return "N/A";
+      }
+
+      if (item !== null && item !== undefined) {
+        return item.toString();
+      }
+
+      return "N/A";
+    },
+    [],
+  );
+
+  // ** Filter maktoobs by company ID
+  const filterMaktoobsByCompany = useCallback((companyId, allMaktoobsData = allMaktoobs) => {
+    if (!companyId || !allMaktoobsData || allMaktoobsData.length === 0) {
+      return [];
+    }
+
+    const filtered = allMaktoobsData.filter(maktoob => {
+      // Check if maktoob has company field
+      if (maktoob.company) {
+        if (typeof maktoob.company === 'object') {
+          return maktoob.company.id === companyId;
+        } else {
+          return maktoob.company === companyId;
+        }
+      }
+      return false;
+    });
+
+    console.log(`Filtered ${filtered.length} maktoobs for company ${companyId}`);
+    return filtered;
+  }, [allMaktoobs]);
 
   // ** Handle Back Button Click
   const handleBackClick = () => {
     navigate(-1);
   };
 
-  // ** Toggle Filter Section
-  const toggleFilter = () => setFilterOpen(!filterOpen);
+  // ** Fetch dropdown data
+  const fetchDropdownData = useCallback(async () => {
+    setDropdownLoading(true);
+    try {
+      const config = getAxiosConfig();
 
-  // ** Clear All Filters
-  const clearFilters = () => {
-    setSearchArea("");
-    setSearchMineralAmount("");
-    setSearchUnitPrice("");
-    setSearchMineralTotalPrice("");
-    setSearchRoyaltyReceiptNumber("");
-    setSearchHaqWazanReceiptNumber("");
-    setSearchWeighingTotalPrice("");
-    setDateRange("");
-  };
+      // Define all endpoints to fetch
+      const endpoints = [
+        { key: "companies", url: `${API_URL}/companies/`, type: "companies" },
+        { key: "maktoobs", url: `${API_URL}/maktoobs/`, type: "maktoobs" },
+        { key: "minerals", url: `${API_URL}/minerals/`, type: "minerals" },
+        { key: "scales", url: `${API_URL}/scales/`, type: "scales" },
+        { key: "units", url: `${API_URL}/units/`, type: "units" },
+      ];
+
+      // Fetch all data
+      const fetchPromises = endpoints.map(async (endpoint) => {
+        try {
+          const response = await axios.get(endpoint.url, config);
+          const data = response.data.results || response.data || [];
+          return Array.isArray(data) ? data : [data];
+        } catch (error) {
+          console.error(`Error fetching ${endpoint.key}:`, error);
+          return [];
+        }
+      });
+
+      const results = await Promise.all(fetchPromises);
+
+      // Extract data from results
+      const companiesData = results[0];
+      const maktoobsData = results[1];
+      const mineralsData = results[2];
+      const scalesData = results[3];
+      const unitsData = results[4];
+
+      // Store ALL maktoobs
+      setAllMaktoobs(maktoobsData);
+
+      // Filter maktoobs if we're in company view
+      let filteredMaktoobsData = [];
+      if (fromCompany && company && company.id) {
+        filteredMaktoobsData = filterMaktoobsByCompany(company.id, maktoobsData);
+      } else {
+        filteredMaktoobsData = maktoobsData;
+      }
+
+      // Create mapping objects
+      const createMapping = (data, type) => {
+        const mapping = {};
+        data.forEach((item) => {
+          if (item && item.id) {
+            mapping[item.id] = {
+              ...item,
+              displayName: (() => {
+                switch (type) {
+                  case "companies":
+                    return (item.company_name || item.name || `Company #${item.id}`);
+                  case "minerals":
+                    return (item.name || item.mineral_name || `Mineral #${item.id}`);
+                  case "scales":
+                    return (item.name || item.scale_number || `Scale #${item.id}`);
+                  case "units":
+                    return (item.name || item.unit_name || item.unit_code || `Unit #${item.id}`);
+                  case "maktoobs":
+                    return item.maktoob_number
+                      ? `Maktoob #${item.maktoob_number}`
+                      : item.name || `Maktoob #${item.id}`;
+                  default:
+                    return item.name || `Item #${item.id}`;
+                }
+              })(),
+            };
+          }
+        });
+        return mapping;
+      };
+
+      const companiesMapping = createMapping(companiesData, "companies");
+      const mineralsMapping = createMapping(mineralsData, "minerals");
+      const scalesMapping = createMapping(scalesData, "scales");
+      const unitsMapping = createMapping(unitsData, "units");
+      const maktoobsMapping = createMapping(maktoobsData, "maktoobs");
+
+      // Update all state
+      setCompanies(companiesData);
+      setFilteredMaktoobs(filteredMaktoobsData);
+      setMinerals(mineralsData);
+      setScales(scalesData);
+      setUnits(unitsData);
+      setCompaniesMap(companiesMapping);
+      setMineralsMap(mineralsMapping);
+      setScalesMap(scalesMapping);
+      setUnitsMap(unitsMapping);
+      setMaktoobsMap(maktoobsMapping);
+
+      return {
+        companiesData,
+        maktoobsData,
+        filteredMaktoobsData,
+        mineralsData,
+        scalesData,
+        unitsData,
+        companiesMapping,
+        mineralsMapping,
+        scalesMapping,
+        unitsMapping,
+        maktoobsMapping,
+      };
+    } catch (error) {
+      toast.error("Failed to load dropdown data");
+      return {
+        companiesData: [],
+        maktoobsData: [],
+        filteredMaktoobsData: [],
+        mineralsData: [],
+        scalesData: [],
+        unitsData: [],
+        companiesMapping: {},
+        mineralsMapping: {},
+        scalesMapping: {},
+        unitsMapping: {},
+        maktoobsMapping: {},
+      };
+    } finally {
+      setDropdownLoading(false);
+    }
+  }, [t, fromCompany, company, filterMaktoobsByCompany]);
+
+  // ** Fetch ALL purchases for client-side filtering and pagination
+  const fetchAllPurchases = useCallback(async (dropdownData = null) => {
+    setLoading(true);
+    try {
+      const config = getAxiosConfig();
+
+      // Build URL - fetch all purchases without pagination
+      let url = `${API_URL}/purchases/`;
+
+      // When in company view, try to filter server-side
+      if (fromCompany && company) {
+        url = `${API_URL}/purchases/`;
+      }
+
+      console.log("Fetching all purchases from:", url);
+
+      // Fetch all data
+      let allPurchases = [];
+      let nextUrl = url;
+
+      while (nextUrl) {
+        try {
+          const response = await axios.get(nextUrl, config);
+          console.log("Purchases API response:", response.data);
+
+          let pageData = [];
+          if (response.data && response.data.results) {
+            pageData = response.data.results;
+            nextUrl = response.data.next;
+          } else if (Array.isArray(response.data)) {
+            pageData = response.data;
+            nextUrl = null;
+          } else {
+            pageData = [];
+            nextUrl = null;
+          }
+
+          allPurchases = [...allPurchases, ...pageData];
+          console.log(`Fetched ${pageData.length} purchases, total: ${allPurchases.length}`);
+
+          if (!nextUrl) break;
+        } catch (error) {
+          console.error("Error fetching purchases page:", error);
+          break;
+        }
+      }
+
+      console.log(`Total purchases fetched: ${allPurchases.length}`);
+
+      // Use provided dropdown data or current state
+      const companiesMapping = dropdownData?.companiesMapping || companiesMap;
+      const mineralsMapping = dropdownData?.mineralsMapping || mineralsMap;
+      const scalesMapping = dropdownData?.scalesMapping || scalesMap;
+      const unitsMapping = dropdownData?.unitsMapping || unitsMap;
+      const maktoobsMapping = dropdownData?.maktoobsMapping || maktoobsMap;
+
+      // Enhance purchases with related objects
+      const enhancedPurchases = allPurchases.map((purchase) => {
+        // Helper function to extract data
+        const extractData = (id, map, type = "object") => {
+          if (!id) return null;
+
+          if (type === "object" && typeof purchase[`${type}Obj`] === "object") {
+            return purchase[`${type}Obj`];
+          }
+
+          return map[id] || null;
+        };
+
+        const companyObj = extractData(purchase.company, companiesMapping, "company");
+        const mineralObj = extractData(purchase.mineral, mineralsMapping, "mineral");
+        const userObj = purchase.user_obj || null;
+        const scaleObj = extractData(purchase.scale, scalesMapping, "scale");
+        const unitObj = extractData(purchase.unit, unitsMapping, "unit");
+        const maktoobObj = extractData(purchase.maktoob, maktoobsMapping, "maktoob");
+
+        // Get company ID for filtering
+        let companyId = null;
+        if (typeof purchase.company === 'object' && purchase.company.id) {
+          companyId = purchase.company.id;
+        } else if (purchase.company) {
+          companyId = parseInt(purchase.company);
+        }
+
+        return {
+          ...purchase,
+          companyObj,
+          mineralObj,
+          userObj,
+          scaleObj,
+          unitObj,
+          maktoobObj,
+          company_id: companyId,
+          companyDisplay: getDisplayValue(companyObj, "company_name", ["name"]),
+          mineralDisplay: getDisplayValue(mineralObj, "name", ["mineral_name"]),
+          userDisplay: getDisplayValue(userObj, "username", ["email"]),
+          scaleDisplay: getDisplayValue(scaleObj, "name", ["scale_number"]),
+          unitDisplay: getDisplayValue(unitObj, "name", ["unit_name", "unit_code"]),
+          maktoobDisplay: getDisplayValue(maktoobObj, "maktoob_number", ["name"]),
+        };
+      });
+
+      // Filter by company if needed
+      let finalData = enhancedPurchases;
+      
+      if (fromCompany && company) {
+        finalData = enhancedPurchases.filter((purchase) => {
+          if (!purchase.company_id) {
+            console.log(`Purchase ${purchase.id} has no company_id, skipping`);
+            return false;
+          }
+          const matches = purchase.company_id === company.id;
+          return matches;
+        });
+        
+        console.log(`Filtered ${finalData.length} purchases for company ${company.company_name}`);
+      }
+
+      setPurchases(finalData);
+      setFilteredData(finalData);
+      setTotalPurchases(finalData.length);
+      setTotalPages(Math.ceil(finalData.length / itemsPerPage));
+      setAllPurchasesLoaded(true);
+
+      return finalData;
+    } catch (error) {
+      console.error("Error fetching purchases:", error);
+      if (error.response?.status === 404) {
+        toast.error(t("Purchases endpoint not found. Check Django URLs."));
+      } else if (error.response?.status === 401) {
+        toast.error(t("Please login first to view purchases"));
+      } else if (error.code === "ERR_NETWORK") {
+        toast.error(t("Network error. Please check your connection."));
+      } else {
+        toast.error(t("Failed to load purchases"));
+      }
+
+      setPurchases([]);
+      setFilteredData([]);
+      setTotalPurchases(0);
+      setTotalPages(0);
+      return [];
+    } finally {
+      setLoading(false);
+      setDataLoaded(true);
+    }
+  }, [
+    companiesMap,
+    mineralsMap,
+    scalesMap,
+    unitsMap,
+    maktoobsMap,
+    getDisplayValue,
+    t,
+    fromCompany,
+    company,
+  ]);
+
+  // ** Initialize data
+  useEffect(() => {
+    const initializeData = async () => {
+      // First, get current user
+      const user = await getCurrentUser();
+      if (user) {
+        setCurrentUser(user);
+      } else {
+        toast.error(t("Unable to identify current user. Please login again."));
+      }
+
+      // Then fetch dropdown data and all purchases
+      const dropdownData = await fetchDropdownData();
+      await fetchAllPurchases(dropdownData);
+    };
+
+    initializeData();
+  }, []); // Empty dependency array to run only once on mount
+
+  // ** Apply filters when search criteria change - CLIENT SIDE FILTERING
+  useEffect(() => {
+    if (!allPurchasesLoaded) return;
+
+    let data = purchases;
+
+    if (searchArea) {
+      data = data.filter((purchase) =>
+        purchase.area?.toLowerCase().includes(searchArea.toLowerCase()),
+      );
+    }
+
+    if (searchMineralAmount) {
+      data = data.filter((purchase) =>
+        purchase.mineral_amount?.toString().includes(searchMineralAmount),
+      );
+    }
+
+    // Only show company filter if not in company view
+    if (searchCompany && !fromCompany) {
+      data = data.filter((purchase) => {
+        const companyDisplay = purchase.companyDisplay || 
+          getDisplayValue(purchase.companyObj, "company_name", ["name"]);
+        return companyDisplay.toLowerCase().includes(searchCompany.toLowerCase());
+      });
+    }
+
+    if (searchMineral) {
+      data = data.filter((purchase) => {
+        const mineralDisplay = purchase.mineralDisplay || 
+          getDisplayValue(purchase.mineralObj, "name", ["mineral_name"]);
+        return mineralDisplay.toLowerCase().includes(searchMineral.toLowerCase());
+      });
+    }
+
+    if (searchDate.length === 2) {
+      const [start, end] = searchDate;
+      data = data.filter((purchase) => {
+        if (!purchase.create_at) return false;
+        const createDate = new Date(purchase.create_at);
+        return createDate >= start && createDate <= end;
+      });
+    }
+
+    setFilteredData(data);
+    setTotalPages(Math.ceil(data.length / itemsPerPage));
+    setCurrentPage(0); // Reset to first page when filtering
+  }, [
+    searchArea,
+    searchMineralAmount,
+    searchCompany,
+    searchMineral,
+    searchDate,
+    purchases,
+    getDisplayValue,
+    fromCompany,
+    allPurchasesLoaded,
+  ]);
 
   // ** Handle Edit Click
-  const handleEdit = (contract) => {
-    setSelectedContract(contract);
-    setEditContractModal(true);
+  const handleEdit = (purchase) => {
+    setSelectedPurchase(purchase);
+    setEditPurchaseModal(true);
   };
 
   // ** Handle Delete Click
-  const handleDeleteClick = (contractId) => {
-    setSelectedContract(
-      contracts.find((contract) => contract.id === contractId)
-    );
+  const handleDeleteClick = (purchaseId) => {
+    const purchase = purchases.find((p) => p.id === purchaseId);
+    setSelectedPurchase(purchase);
     setDeleteModal(true);
   };
 
   // ** Handle Delete Confirmation
   const handleDeleteConfirm = async () => {
-    if (selectedContract) {
+    if (selectedPurchase) {
       try {
-        await axios.delete(`${API_URL}/purchases/${selectedContract.id}/`);
-        toast.success("Purchase deleted successfully!");
-        fetchContracts(); // Refresh the list
+        const config = getAxiosConfig();
+        await axios.delete(`${API_URL}/purchases/${selectedPurchase.id}/`, config);
+        toast.success(t("Purchase deleted successfully!"));
+
+        // Update state immediately for better UX
+        const updatedPurchases = purchases.filter((p) => p.id !== selectedPurchase.id);
+        setPurchases(updatedPurchases);
+        setFilteredData(updatedPurchases.filter(purchase => {
+          // Reapply current filters
+          let passes = true;
+          
+          if (searchArea) {
+            passes = passes && purchase.area?.toLowerCase().includes(searchArea.toLowerCase());
+          }
+          
+          if (searchMineralAmount) {
+            passes = passes && purchase.mineral_amount?.toString().includes(searchMineralAmount);
+          }
+          
+          if (searchCompany && !fromCompany) {
+            const companyDisplay = purchase.companyDisplay || 
+              getDisplayValue(purchase.companyObj, "company_name", ["name"]);
+            passes = passes && companyDisplay.toLowerCase().includes(searchCompany.toLowerCase());
+          }
+          
+          if (searchMineral) {
+            const mineralDisplay = purchase.mineralDisplay || 
+              getDisplayValue(purchase.mineralObj, "name", ["mineral_name"]);
+            passes = passes && mineralDisplay.toLowerCase().includes(searchMineral.toLowerCase());
+          }
+          
+          if (searchDate.length === 2) {
+            const [start, end] = searchDate;
+            if (!purchase.create_at) return false;
+            const createDate = new Date(purchase.create_at);
+            passes = passes && (createDate >= start && createDate <= end);
+          }
+          
+          return passes;
+        }));
+        setTotalPurchases(updatedPurchases.length);
+        setTotalPages(Math.ceil(updatedPurchases.length / itemsPerPage));
+
         setDeleteModal(false);
-        setSelectedContract(null);
+        setSelectedPurchase(null);
       } catch (error) {
-        if (error.response?.status === 404) {
-          toast.error("Cannot delete. Purchase not found.");
-        } else {
-          toast.error("Failed to delete purchase");
-        }
+        toast.error(t("Failed to delete purchase"));
       }
     }
   };
 
-  // ** Contract columns configuration
+  // ** Close All Modals
+  const closeModals = () => {
+    setAddPurchaseModal(false);
+    setEditPurchaseModal(false);
+    setDeleteModal(false);
+    setSelectedPurchase(null);
+    setIsSubmitting(false);
+  };
+
+  // ** Handle Add Purchase Submission
+  const handleAddPurchase = async (purchaseData) => {
+    if (!currentUser) {
+      toast.error(t("Unable to identify current user. Please login again."));
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const config = getAxiosConfig();
+
+      const formattedData = {
+        area: purchaseData.area || "",
+        mineral_amount: parseInt(purchaseData.mineral_amount) || 0,
+        unit_price: parseFloat(purchaseData.unit_price) || 0,
+        mineral_total_price: parseFloat(purchaseData.mineral_total_price) || 0,
+        weighing_total_price: parseInt(purchaseData.weighing_total_price) || 0,
+        royalty_receipt_number: purchaseData.royalty_receipt_number
+          ? parseInt(purchaseData.royalty_receipt_number)
+          : null,
+        haq_wazan_receipt_number: purchaseData.haq_wazan_receipt_number
+          ? parseInt(purchaseData.haq_wazan_receipt_number)
+          : null,
+        user: currentUser.id,
+      };
+
+      // Add foreign key fields
+      if (fromCompany && company) {
+        formattedData.company = company.id;
+        console.log(`Adding purchase with company: ${company.id} (${company.company_name})`);
+      } else if (purchaseData.company && purchaseData.company !== "") {
+        formattedData.company = parseInt(purchaseData.company);
+      }
+
+      if (purchaseData.maktoob && purchaseData.maktoob !== "") {
+        formattedData.maktoob = parseInt(purchaseData.maktoob);
+      }
+
+      if (purchaseData.mineral && purchaseData.mineral !== "") {
+        formattedData.mineral = parseInt(purchaseData.mineral);
+      }
+
+      if (purchaseData.scale && purchaseData.scale !== "") {
+        formattedData.scale = parseInt(purchaseData.scale);
+      }
+
+      if (purchaseData.unit && purchaseData.unit !== "") {
+        formattedData.unit = parseInt(purchaseData.unit);
+      }
+
+      const response = await axios.post(`${API_URL}/purchases/`, formattedData, config);
+
+      if (response.status === 201) {
+        toast.success(t("Purchase added successfully!"));
+        setAddPurchaseModal(false);
+        
+        // Refresh all purchases after adding new one
+        await fetchAllPurchases();
+      }
+    } catch (error) {
+      console.error("Error adding purchase:", error);
+      if (error.response?.data) {
+        if (typeof error.response.data === "object") {
+          Object.keys(error.response.data).forEach((key) => {
+            if (Array.isArray(error.response.data[key])) {
+              error.response.data[key].forEach((err) => {
+                toast.error(`${key}: ${err}`);
+              });
+            } else {
+              toast.error(`${key}: ${error.response.data[key]}`);
+            }
+          });
+        } else {
+          toast.error(error.response.data);
+        }
+      } else {
+        toast.error(t("Failed to add purchase"));
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // ** Handle Edit Purchase Submission
+  const handleEditPurchase = async (purchaseData) => {
+    setIsSubmitting(true);
+
+    try {
+      const config = getAxiosConfig();
+
+      const formattedData = {
+        area: purchaseData.area || "",
+        mineral_amount: parseInt(purchaseData.mineral_amount) || 0,
+        unit_price: parseFloat(purchaseData.unit_price) || 0,
+        mineral_total_price: parseFloat(purchaseData.mineral_total_price) || 0,
+        weighing_total_price: parseInt(purchaseData.weighing_total_price) || 0,
+        royalty_receipt_number: purchaseData.royalty_receipt_number
+          ? parseInt(purchaseData.royalty_receipt_number)
+          : null,
+        haq_wazan_receipt_number: purchaseData.haq_wazan_receipt_number
+          ? parseInt(purchaseData.haq_wazan_receipt_number)
+          : null,
+        user: selectedPurchase?.user || currentUser?.id,
+      };
+
+      // Add foreign key fields
+      if (purchaseData.company !== undefined && purchaseData.company !== "") {
+        formattedData.company = purchaseData.company ? parseInt(purchaseData.company) : null;
+      } else {
+        formattedData.company = null;
+      }
+
+      if (purchaseData.maktoob !== undefined && purchaseData.maktoob !== "") {
+        formattedData.maktoob = purchaseData.maktoob ? parseInt(purchaseData.maktoob) : null;
+      } else {
+        formattedData.maktoob = null;
+      }
+
+      if (purchaseData.mineral !== undefined && purchaseData.mineral !== "") {
+        formattedData.mineral = purchaseData.mineral ? parseInt(purchaseData.mineral) : null;
+      } else {
+        formattedData.mineral = null;
+      }
+
+      if (purchaseData.scale !== undefined && purchaseData.scale !== "") {
+        formattedData.scale = purchaseData.scale ? parseInt(purchaseData.scale) : null;
+      } else {
+        formattedData.scale = null;
+      }
+
+      if (purchaseData.unit !== undefined && purchaseData.unit !== "") {
+        formattedData.unit = purchaseData.unit ? parseInt(purchaseData.unit) : null;
+      } else {
+        formattedData.unit = null;
+      }
+
+      const response = await axios.put(
+        `${API_URL}/purchases/${selectedPurchase.id}/`,
+        formattedData,
+        config,
+      );
+
+      if (response.status === 200) {
+        toast.success(t("Purchase updated successfully!"));
+        setEditPurchaseModal(false);
+        setSelectedPurchase(null);
+        // Refresh all purchases after edit
+        await fetchAllPurchases();
+      }
+    } catch (error) {
+      console.error("Error updating purchase:", error);
+      if (error.response?.data) {
+        if (typeof error.response.data === "object") {
+          Object.keys(error.response.data).forEach((key) => {
+            if (Array.isArray(error.response.data[key])) {
+              error.response.data[key].forEach((err) => {
+                toast.error(`${key}: ${err}`);
+              });
+            } else {
+              toast.error(`${key}: ${error.response.data[key]}`);
+            }
+          });
+        } else {
+          toast.error(error.response.data);
+        }
+      } else {
+        toast.error(t("Failed to update purchase"));
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // ** Get current page data
+  const getCurrentPageData = () => {
+    const startIndex = currentPage * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredData.slice(startIndex, endIndex);
+  };
+
+  // ** Purchase columns configuration
   const columns = [
     {
-      name: t("id") || "ID",
+      name: t("ID"),
       selector: (row) => row.id,
       sortable: true,
       width: "70px",
     },
     {
-      name: t("area") || "Area",
+      name: t("Area"),
       selector: (row) => row.area || "N/A",
       sortable: true,
+      minWidth: "150px",
+    },
+    {
+      name: t("Mineral Amount"),
+      selector: (row) => row.mineral_amount || 0,
+      sortable: true,
+      width: "120px",
+      cell: (row) => (
+        <span>
+          {row.mineral_amount ? row.mineral_amount.toLocaleString() : "0"}
+        </span>
+      ),
+    },
+    {
+      name: t("Unit Price"),
+      selector: (row) => row.unit_price || 0,
+      sortable: true,
+      width: "100px",
+      cell: (row) => (
+        <span>
+          {row.unit_price ? parseFloat(row.unit_price).toFixed(2) : "0.00"} AF
+        </span>
+      ),
+    },
+    {
+      name: t("Total Price"),
+      selector: (row) => row.mineral_total_price || 0,
+      sortable: true,
+      width: "120px",
+      cell: (row) => (
+        <strong>
+          {row.mineral_total_price
+            ? parseFloat(row.mineral_total_price).toFixed(2)
+            : "0.00"}{" "}
+          AF
+        </strong>
+      ),
+    },
+    // Only show Company column if not in company view
+    ...(!fromCompany
+      ? [
+          {
+            name: t("Company"),
+            selector: (row) =>
+              row.companyDisplay ||
+              getDisplayValue(row.companyObj, "company_name", ["name"]),
+            sortable: true,
+            minWidth: "150px",
+            cell: (row) => {
+              const companyName =
+                row.companyDisplay ||
+                getDisplayValue(row.companyObj, "company_name", ["name"]);
+              return (
+                <Badge
+                  color="primary"
+                  className="text-truncate"
+                  style={{ maxWidth: "150px" }}
+                >
+                  {companyName}
+                </Badge>
+              );
+            },
+          },
+        ]
+      : []),
+    {
+      name: t("Mineral"),
+      selector: (row) =>
+        row.mineralDisplay ||
+        getDisplayValue(row.mineralObj, "name", ["mineral_name"]),
+      sortable: true,
       width: "120px",
     },
     {
-      name: t("mineral_amount") || "Mineral Amount",
-      selector: (row) => row.mineral_amount || "0",
-      sortable: true,
-      width: "140px",
-    },
-    {
-      name: t("unit_price") || "Unit Price",
-      selector: (row) => row.unit_price,
-      sortable: true,
-      width: "120px",
-      cell: (row) => `$${row.unit_price || "0.00"}`,
-    },
-    {
-      name: t("mineral_total_price") || "Mineral Total Price",
-      selector: (row) => row.mineral_total_price,
-      sortable: true,
-      width: "150px",
-      cell: (row) => `$${row.mineral_total_price || "0.00"}`,
-    },
-    {
-      name: t("royalty_receipt_number") || "Royalty Receipt Number",
+      name: t("Royalty Receipt"),
       selector: (row) => row.royalty_receipt_number || "N/A",
       sortable: true,
-      width: "180px",
+      width: "130px",
     },
     {
-      name: t("haq_wazan_receipt_number") || "Haq Wazan Receipt Number",
+      name: t("Weighing Total"),
+      selector: (row) => row.weighing_total_price || 0,
+      sortable: true,
+      width: "120px",
+      cell: (row) => (
+        <span>
+          {row.weighing_total_price
+            ? row.weighing_total_price.toLocaleString()
+            : "0"}{" "}
+          AF
+        </span>
+      ),
+    },
+    {
+      name: t("Haq Wazan"),
       selector: (row) => row.haq_wazan_receipt_number || "N/A",
       sortable: true,
-      width: "200px",
-    },
-    {
-      name: t("weighing_total_price") || "Weighing Total Price",
-      selector: (row) => row.weighing_total_price,
-      sortable: true,
-      width: "160px",
-      cell: (row) => `$${row.weighing_total_price || "0"}`,
-    },
-    {
-      name: t("mineral") || "Mineral",
-      selector: (row) => row.mineral?.name || "N/A",
-      sortable: true,
       width: "120px",
     },
     {
-      name: t("company") || "Company",
-      selector: (row) => row.company?.company_name || "N/A",
+      name: t("Unit"),
+      selector: (row) =>
+        row.unitDisplay ||
+        getDisplayValue(row.unitObj, "name", ["unit_name", "unit_code"]),
       sortable: true,
-      width: "150px",
+      width: "100px",
+      cell: (row) => {
+        const unitName =
+          row.unitDisplay ||
+          getDisplayValue(row.unitObj, "name", ["unit_name", "unit_code"]);
+        return <Badge color="secondary">{unitName}</Badge>;
+      },
     },
     {
-      name: t("date") || "Date",
-      selector: (row) => row.create_at ? new Date(row.create_at).toLocaleDateString() : "N/A",
+      name: t("Maktoob"),
+      selector: (row) =>
+        row.maktoobDisplay ||
+        getDisplayValue(row.maktoobObj, "maktoob_number", ["name"]),
       sortable: true,
-      width: "120px",
+      width: "130px",
+      cell: (row) => {
+        const maktoobValue =
+          row.maktoobDisplay ||
+          getDisplayValue(row.maktoobObj, "maktoob_number", ["name"]);
+        return maktoobValue !== "N/A" ? (
+          <Badge color="success" pill>
+            {maktoobValue}
+          </Badge>
+        ) : (
+          "N/A"
+        );
+      },
     },
     {
-      name: t("actions") || "Actions",
+      name: t("Date"),
+      selector: (row) =>
+        row.create_at
+          ? gregorianToShamsi(row.create_at)
+          : "N/A",
+      sortable: true,
+      minWidth: "120px",
+    },
+    {
+      name: t("Actions"),
       width: "120px",
       cell: (row) => (
         <div className="d-flex gap-1">
@@ -356,7 +1041,7 @@ const ContractSalesTable = () => {
             size="sm"
             onClick={() => handleEdit(row)}
             className="btn-icon"
-            title={t("edit") || "Edit"}
+            title={t("Edit")}
           >
             <Edit size={12} />
           </Button>
@@ -365,7 +1050,7 @@ const ContractSalesTable = () => {
             size="sm"
             onClick={() => handleDeleteClick(row.id)}
             className="btn-icon"
-            title={t("delete") || "Delete"}
+            title={t("Delete")}
           >
             <Trash2 size={12} />
           </Button>
@@ -375,154 +1060,72 @@ const ContractSalesTable = () => {
   ];
 
   // ** Function to handle Pagination
-  const handlePagination = (page) => setCurrentPage(page.selected);
-
-  // ** Table data to render
-  const dataToRender = () => {
-    if (
-      searchArea.length ||
-      searchMineralAmount.length ||
-      searchUnitPrice.length ||
-      searchMineralTotalPrice.length ||
-      searchRoyaltyReceiptNumber.length ||
-      searchHaqWazanReceiptNumber.length ||
-      searchWeighingTotalPrice.length ||
-      dateRange.length
-    ) {
-      return filteredData;
-    } else {
-      return contracts;
-    }
+  const handlePagination = (page) => {
+    const newPage = page.selected;
+    setCurrentPage(newPage);
   };
 
   // ** Custom Pagination
-  const CustomPagination = () => (
-    <ReactPaginate
-      previousLabel={""}
-      nextLabel={""}
-      forcePage={currentPage}
-      onPageChange={(page) => handlePagination(page)}
-      pageCount={Math.ceil(dataToRender().length / 7) || 1}
-      breakLabel={"..."}
-      pageRangeDisplayed={2}
-      marginPagesDisplayed={2}
-      activeClassName="active"
-      pageClassName="page-item"
-      breakClassName="page-item"
-      nextLinkClassName="page-link"
-      pageLinkClassName="page-link"
-      breakLinkClassName="page-link"
-      previousLinkClassName="page-link"
-      nextClassName="page-item next-item"
-      previousClassName="page-item prev-item"
-      containerClassName={
-        "pagination react-paginate separated-pagination pagination-sm justify-content-end pe-1 mt-1"
-      }
-    />
-  );
+  const CustomPagination = () => {
+    const pageCount = totalPages;
 
-  // ** Handle Add Contract Submission
-  const handleAddContractSubmit = async (contractData) => {
-    setIsSubmitting(true);
+    if (pageCount <= 1) return null;
 
-    try {
-      // Clean up the data
-      const cleanData = {
-        area: contractData.area,
-        mineral_amount: parseInt(contractData.mineral_amount) || 0,
-        unit_price: contractData.unit_price ? parseFloat(contractData.unit_price) : null,
-        mineral_total_price: contractData.mineral_total_price ? parseFloat(contractData.mineral_total_price) : null,
-        royalty_receipt_number: contractData.royalty_receipt_number ? parseInt(contractData.royalty_receipt_number) : null,
-        haq_wazan_receipt_number: contractData.haq_wazan_receipt_number ? parseInt(contractData.haq_wazan_receipt_number) : null,
-        weighing_total_price: contractData.weighing_total_price ? parseInt(contractData.weighing_total_price) : null,
-        create_at: contractData.create_at,
-        company: fromCompany && company ? company.id : contractData.company,
-      };
+    return (
+      <ReactPaginate
+        previousLabel={""}
+        nextLabel={""}
+        forcePage={currentPage}
+        onPageChange={handlePagination}
+        pageCount={pageCount}
+        breakLabel={"..."}
+        pageRangeDisplayed={2}
+        marginPagesDisplayed={2}
+        activeClassName="active"
+        pageClassName="page-item"
+        breakClassName="page-item"
+        nextLinkClassName="page-link"
+        pageLinkClassName="page-link"
+        breakLinkClassName="page-link"
+        previousLinkClassName="page-link"
+        nextClassName="page-item next-item"
+        previousClassName="page-item prev-item"
+        containerClassName={
+          "pagination react-paginate separated-pagination pagination-sm justify-content-end pe-1 mt-1"
+        }
+      />
+    );
+  };
 
-      const response = await axios.post(`${API_URL}/purchases/`, cleanData);
-      
-      if (response.status === 201) {
-        toast.success("Purchase added successfully!");
-        setAddContractModal(false);
-        fetchContracts(); // Refresh the list
-      }
-    } catch (error) {
-      if (error.response?.status === 404) {
-        toast.error("Cannot add purchase. API endpoint not found.");
-      } else if (error.response?.status === 400) {
-        toast.error("Validation error: " + JSON.stringify(error.response.data));
-      } else {
-        toast.error(error.response?.data?.message || "Failed to add purchase");
-      }
-    } finally {
-      setIsSubmitting(false);
+  // ** Toggle Filter Section
+  const toggleFilter = () => setFilterOpen(!filterOpen);
+
+  // ** Clear All Filters
+  const clearFilters = () => {
+    setSearchArea("");
+    setSearchMineralAmount("");
+    setSearchCompany("");
+    setSearchMineral("");
+    setSearchDate([]);
+  };
+
+  // ** Handle Add Purchase Button Click
+  const handleAddPurchaseClick = () => {
+    if (!currentUser) {
+      toast.error(t("Unable to identify current user. Please login again."));
+      return;
     }
-  };
-
-  // ** Handle Edit Contract Submission
-  const handleEditContractSubmit = async (contractData) => {
-    setIsSubmitting(true);
-
-    try {
-      // Clean up the data
-      const cleanData = {
-        area: contractData.area,
-        mineral_amount: parseInt(contractData.mineral_amount) || 0,
-        unit_price: contractData.unit_price ? parseFloat(contractData.unit_price) : null,
-        mineral_total_price: contractData.mineral_total_price ? parseFloat(contractData.mineral_total_price) : null,
-        royalty_receipt_number: contractData.royalty_receipt_number ? parseInt(contractData.royalty_receipt_number) : null,
-        haq_wazan_receipt_number: contractData.haq_wazan_receipt_number ? parseInt(contractData.haq_wazan_receipt_number) : null,
-        weighing_total_price: contractData.weighing_total_price ? parseInt(contractData.weighing_total_price) : null,
-        company: contractData.company,
-      };
-
-      const response = await axios.put(
-        `${API_URL}/purchases/${selectedContract.id}/`,
-        cleanData
-      );
-      
-      if (response.status === 200) {
-        toast.success("Purchase updated successfully!");
-        setEditContractModal(false);
-        setSelectedContract(null);
-        fetchContracts(); // Refresh the list
-      }
-    } catch (error) {
-      if (error.response?.status === 404) {
-        toast.error("Cannot update. Purchase not found.");
-      } else if (error.response?.status === 400) {
-        toast.error("Validation error: " + JSON.stringify(error.response.data));
-      } else {
-        toast.error(error.response?.data?.message || "Failed to update purchase");
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // ** Handle Add Contract Button Click
-  const handleAddContractClick = () => {
-    setAddContractModal(true);
-  };
-
-  // ** Close Modals
-  const closeModals = () => {
-    setAddContractModal(false);
-    setEditContractModal(false);
-    setDeleteModal(false);
-    setSelectedContract(null);
-    setIsSubmitting(false);
+    setAddPurchaseModal(true);
   };
 
   return (
     <Fragment>
-      <ToastContainer position="top-right" autoClose={3000} />
-      
+      <ToastContainer position="top-left" autoClose={3000} />
+
       <Card>
         <CardHeader className="border-bottom">
           <div className="d-flex justify-content-between align-items-center">
             <div className="d-flex align-items-center">
-              {/* Back Button - Only show when coming from company */}
               {fromCompany && (
                 <Button
                   color="secondary"
@@ -530,39 +1133,51 @@ const ContractSalesTable = () => {
                   className="me-2 d-flex align-items-center"
                 >
                   <ArrowLeft size={14} className="me-50" />
-                  {t("back") || "Back"}
+                  {t("Back")}
                 </Button>
               )}
-              <CardTitle tag="h4" className="mb-0">
-                {fromCompany && company
-                  ? `${t("purchase_management") || "Purchase Management"} - ${
-                      company.company_name
-                    }`
-                  : t("purchase_management") || "Purchase Management"}
-                {fromCompany && company && (
-                  <Badge color="primary" className="ms-2">
-                    {t("company_view") || "Company View"}
-                  </Badge>
-                )}
-              </CardTitle>
+              <div>
+                <CardTitle tag="h4" className="mb-0 m-1">
+                  {fromCompany && company
+                    ? `${t("Purchase Management")} - ${company.company_name}`
+                    : t("Purchase Management")}
+                  {fromCompany && company && (
+                    <Badge color="primary" className="ms-2">
+                      {t("Company View")}
+                    </Badge>
+                  )}
+                </CardTitle>
+              </div>
+              <div className="d-flex align-items-center mt-1">
+                <Badge color="dark" className="p-1 me-2">
+                  {filteredData.length} {t("Purchases")}
+                  {filteredData.length !== purchases.length && (
+                    <span className="ms-1">
+                      (of {purchases.length} total)
+                    </span>
+                  )}
+                </Badge>
+              </div>
             </div>
             <div className="d-flex gap-1">
               <Button
                 color="secondary"
                 onClick={toggleFilter}
                 className="d-flex align-items-center"
+                disabled={loading}
               >
                 <Filter size={14} className="me-50" />
-                {t("filter") || "Filter"}
+                {t("Filter")}
                 {filterOpen && <X size={14} className="ms-50" />}
               </Button>
               <Button
                 color="primary"
-                onClick={handleAddContractClick}
+                onClick={handleAddPurchaseClick}
                 className="d-flex align-items-center"
+                disabled={loading || dropdownLoading || !currentUser}
               >
                 <Plus size={14} className="me-50" />
-                {t("add_purchase") || "Add Purchase"}
+                {t("Add Purchase")}
               </Button>
             </div>
           </div>
@@ -574,119 +1189,57 @@ const ContractSalesTable = () => {
             <Row className="mt-1 mb-50">
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="area">
-                  {t("area") || "Area"}:
+                  {t("Area")}:
                 </Label>
                 <Input
                   id="area"
-                  placeholder={t("filter_by_area") || "Filter by Area"}
+                  placeholder={t("Filter by Area")}
                   value={searchArea}
                   onChange={(e) => setSearchArea(e.target.value)}
+                  disabled={loading}
                 />
               </Col>
 
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="mineralAmount">
-                  {t("mineral_amount") || "Mineral Amount"}:
+                  {t("Mineral Amount")}:
                 </Label>
                 <Input
                   id="mineralAmount"
                   type="number"
-                  placeholder={
-                    t("filter_by_mineral_amount") || "Filter by Mineral Amount"
-                  }
+                  placeholder={t("Filter by Mineral Amount")}
                   value={searchMineralAmount}
                   onChange={(e) => setSearchMineralAmount(e.target.value)}
+                  disabled={loading}
                 />
               </Col>
 
+              {/* Only show company filter if not in company view */}
+              {!fromCompany && (
+                <Col lg="3" md="6" className="mb-1">
+                  <Label className="form-label" htmlFor="company">
+                    {t("Company")}:
+                  </Label>
+                  <Input
+                    id="company"
+                    placeholder={t("Filter by Company")}
+                    value={searchCompany}
+                    onChange={(e) => setSearchCompany(e.target.value)}
+                    disabled={loading}
+                  />
+                </Col>
+              )}
+
               <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="unitPrice">
-                  {t("unit_price") || "Unit Price"}:
+                <Label className="form-label" htmlFor="mineral">
+                  {t("Mineral")}:
                 </Label>
                 <Input
-                  id="unitPrice"
-                  type="number"
-                  placeholder={
-                    t("filter_by_unit_price") || "Filter by Unit Price"
-                  }
-                  value={searchUnitPrice}
-                  onChange={(e) => setSearchUnitPrice(e.target.value)}
-                />
-              </Col>
-
-              <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="mineralTotalPrice">
-                  {t("mineral_total_price") || "Mineral Total Price"}:
-                </Label>
-                <Input
-                  id="mineralTotalPrice"
-                  type="number"
-                  placeholder={
-                    t("filter_by_total_price") || "Filter by Total Price"
-                  }
-                  value={searchMineralTotalPrice}
-                  onChange={(e) => setSearchMineralTotalPrice(e.target.value)}
-                />
-              </Col>
-
-              <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="royaltyReceiptNumber">
-                  {t("royalty_receipt_number") || "Royalty Receipt Number"}:
-                </Label>
-                <Input
-                  id="royaltyReceiptNumber"
-                  placeholder={
-                    t("filter_by_royalty_receipt") ||
-                    "Filter by Royalty Receipt"
-                  }
-                  value={searchRoyaltyReceiptNumber}
-                  onChange={(e) =>
-                    setSearchRoyaltyReceiptNumber(e.target.value)
-                  }
-                />
-              </Col>
-
-              <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="haqWazanReceiptNumber">
-                  {t("haq_wazan_receipt_number") || "Haq Wazan Receipt Number"}:
-                </Label>
-                <Input
-                  id="haqWazanReceiptNumber"
-                  placeholder={
-                    t("filter_by_haq_wazan") || "Filter by Haq Wazan"
-                  }
-                  value={searchHaqWazanReceiptNumber}
-                  onChange={(e) =>
-                    setSearchHaqWazanReceiptNumber(e.target.value)
-                  }
-                />
-              </Col>
-
-              <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="weighingTotalPrice">
-                  {t("weighing_total_price") || "Weighing Total Price"}:
-                </Label>
-                <Input
-                  id="weighingTotalPrice"
-                  type="number"
-                  placeholder={
-                    t("filter_by_weighing_price") || "Filter by Weighing Price"
-                  }
-                  value={searchWeighingTotalPrice}
-                  onChange={(e) => setSearchWeighingTotalPrice(e.target.value)}
-                />
-              </Col>
-
-              <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="date">
-                  {t("purchase_date") || "Purchase Date"}:
-                </Label>
-                <Flatpickr
-                  className="form-control"
-                  id="date"
-                  value={dateRange}
-                  options={{ mode: "range", dateFormat: "Y-m-d" }}
-                  onChange={(date) => setDateRange(date)}
+                  id="mineral"
+                  placeholder={t("Filter by Mineral")}
+                  value={searchMineral}
+                  onChange={(e) => setSearchMineral(e.target.value)}
+                  disabled={loading}
                 />
               </Col>
 
@@ -698,11 +1251,9 @@ const ContractSalesTable = () => {
                   color="outline-secondary"
                   onClick={clearFilters}
                   className="me-1"
+                  disabled={loading}
                 >
-                  {t("clear_filters") || "Clear Filters"}
-                </Button>
-                <Button color="primary" onClick={applyFilters}>
-                  {t("apply_filters") || "Apply Filters"}
+                  {t("Clear Filters")}
                 </Button>
               </Col>
             </Row>
@@ -711,17 +1262,33 @@ const ContractSalesTable = () => {
 
         {/* Data Table */}
         <CardBody>
-          {loading ? (
+          {loading && !dataLoaded ? (
             <div className="text-center py-5">
               <Spinner color="primary" />
-              <p className="mt-2">Loading purchases...</p>
+              <p className="mt-2">{t("Loading purchases...")}</p>
             </div>
-          ) : contracts.length === 0 ? (
+          ) : filteredData.length === 0 && purchases.length === 0 ? (
             <div className="text-center py-5">
-              <p className="text-muted">No purchases found</p>
-              <Button color="primary" onClick={handleAddContractClick}>
-                <Plus size={14} className="me-50" />
-                Add Your First Purchase
+              <h5>
+                {fromCompany && company
+                  ? t(`No purchases found for ${company.company_name}`)
+                  : t("No purchases found")}
+              </h5>
+              <p className="text-muted">
+                {fromCompany && company
+                  ? t(`No purchases recorded for ${company.company_name} yet. Add the first purchase!`)
+                  : ""}
+              </p>
+            </div>
+          ) : filteredData.length === 0 ? (
+            <div className="text-center py-5">
+              <Database size={48} className="text-muted mb-3" />
+              <h5>{t("No purchases match your filters")}</h5>
+              <p className="text-muted">
+                {t("Try clearing filters or adjust your search criteria.")}
+              </p>
+              <Button color="secondary" onClick={clearFilters}>
+                {t("Clear Filters")}
               </Button>
             </div>
           ) : (
@@ -730,12 +1297,13 @@ const ContractSalesTable = () => {
                 noHeader
                 pagination
                 columns={columns}
-                paginationPerPage={7}
+                paginationPerPage={itemsPerPage}
                 className="react-dataTable"
                 sortIcon={<ChevronDown size={10} />}
                 paginationDefaultPage={currentPage + 1}
                 paginationComponent={CustomPagination}
-                data={dataToRender()}
+                data={getCurrentPageData()}
+                paginationTotalRows={filteredData.length}
               />
             </div>
           )}
@@ -743,67 +1311,100 @@ const ContractSalesTable = () => {
       </Card>
 
       {/* Add Purchase Modal */}
-      <Modal isOpen={addContractModal} toggle={closeModals} size="lg">
+      <Modal isOpen={addPurchaseModal} toggle={closeModals} size="lg">
         <ModalHeader toggle={closeModals}>
-          {t("add_new_purchase") || "Add New Purchase"}
-          {fromCompany && company && ` - ${company.company_name}`}
+          <div className="d-flex align-items-center">
+            <div>
+              {fromCompany && company
+                ? `${t("Add New Purchase")} - ${company.company_name}`
+                : t("Add New Purchase")}
+            </div>
+            {dropdownLoading && (
+              <Spinner size="sm" color="primary" className="ms-2" />
+            )}
+          </div>
         </ModalHeader>
         <ModalBody>
-          <AddNewContractSales
-            onSuccess={handleAddContractSubmit}
-            onCancel={closeModals}
-            selectedCompany={fromCompany ? company : null}
-            loading={isSubmitting}
-            isEdit={false}
-          />
+          {dropdownLoading ? (
+            <div className="text-center py-5">
+              <Spinner color="primary" />
+              <p className="mt-2">{t("Loading dropdown data...")}</p>
+            </div>
+          ) : (
+            <AddNewPurchase
+              onSuccess={handleAddPurchase}
+              onCancel={closeModals}
+              loading={isSubmitting}
+              isEdit={false}
+              companies={companies}
+              maktoobs={filteredMaktoobs} // Pass filtered maktoobs
+              minerals={minerals}
+              scales={scales}
+              units={units}
+              selectedCompany={fromCompany ? company : null}
+              currentUser={currentUser}
+              hideUserField={true}
+              hideScaleField={true}
+            />
+          )}
         </ModalBody>
       </Modal>
 
       {/* Edit Purchase Modal */}
-      <Modal isOpen={editContractModal} toggle={closeModals} size="lg">
+      <Modal isOpen={editPurchaseModal} toggle={closeModals} size="lg">
         <ModalHeader toggle={closeModals}>
-          {t("edit_purchase") || "Edit Purchase"} -{" "}
-          {selectedContract?.id}
+          <div>
+            {t("Edit Purchase")} - ID: {selectedPurchase?.id}
+          </div>
         </ModalHeader>
         <ModalBody>
-          <AddNewContractSales
-            onSuccess={handleEditContractSubmit}
+          <AddNewPurchase
+            initialData={selectedPurchase}
+            onSuccess={handleEditPurchase}
             onCancel={closeModals}
-            initialData={selectedContract}
             loading={isSubmitting}
             isEdit={true}
+            companies={companies}
+            maktoobs={filteredMaktoobs} // Pass filtered maktoobs
+            minerals={minerals}
+            scales={scales}
+            units={units}
+            currentUser={currentUser}
+            hideUserField={true}
+            hideScaleField={true}
           />
         </ModalBody>
       </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal isOpen={deleteModal} toggle={closeModals}>
-        <ModalHeader toggle={closeModals}>
-          {t("delete_purchase") || "Delete Purchase"}
-        </ModalHeader>
+        <ModalHeader toggle={closeModals}>{t("Delete Purchase")}</ModalHeader>
         <ModalBody>
-          <p>
-            {t("delete_purchase_confirmation") ||
-              "Are you sure you want to delete this purchase?"}
-          </p>
-          {selectedContract && (
+          <p>{t("Are you sure you want to delete this purchase?")}</p>
+          {selectedPurchase && (
             <div className="mt-2">
-              <strong>Purchase #{selectedContract.id}</strong>
+              <strong>
+                {t("Purchase ID")}: {selectedPurchase.id}
+              </strong>
               <br />
               <small className="text-muted">
-                Area: {selectedContract.area} | Mineral Amount:{" "}
-                {selectedContract.mineral_amount}
+                {t("Area")}: {selectedPurchase.area || "N/A"} |
+                {t("Mineral Amount")}: {selectedPurchase.mineral_amount || "0"} |
+                {t("Total Price")}: $
+                {selectedPurchase.mineral_total_price
+                  ? parseFloat(selectedPurchase.mineral_total_price).toFixed(2)
+                  : "0.00"}
               </small>
             </div>
           )}
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" onClick={closeModals}>
-            {t("cancel") || "Cancel"}
+            {t("Cancel")}
           </Button>
           <Button color="danger" onClick={handleDeleteConfirm}>
             <Trash2 size={14} className="me-50" />
-            {t("delete") || "Delete"}
+            {t("Delete")}
           </Button>
         </ModalFooter>
       </Modal>
@@ -811,4 +1412,4 @@ const ContractSalesTable = () => {
   );
 };
 
-export default ContractSalesTable;
+export default PurchaseTable;

@@ -1,11 +1,10 @@
 // ** React Imports
-import { useState, Fragment, useEffect } from "react";
+import { useState, Fragment, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 // ** Third Party Components
-import Flatpickr from "react-flatpickr";
 import ReactPaginate from "react-paginate";
 import {
   ChevronDown,
@@ -15,10 +14,11 @@ import {
   Filter,
   X,
   Edit,
+  Database,
 } from "react-feather";
 import DataTable from "react-data-table-component";
-import { toast, ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 // ** Reactstrap Imports
 import {
@@ -43,38 +43,44 @@ import {
 // ** Import MaktoobInfo Component
 import MaktoobInfo from "./addMaktoob/AddNewMaktoob.js";
 
+import gregorianToShamsi from "../gregorianToShamsi.js";
+
 // ** API Base URL
 const API_URL = "http://127.0.0.1:8000/test1";
-
-// ** Maktoob Type mapping
-const maktoobTypeMap = {
-  "maktoob-contract": "Maktoob Contract",
-  "maktoob-tamded": "Maktoob Tamded",
-  "maktoob-khosh": "Maktoob Sale",
-  "maktoob-royality": "Maktoob Royalty",
-  "maktoob-baharbardry": "Maktoob Baharbardry",
-  "maktoob-paskha": "Maktoob Paskha",
-  "maktoob-process": "Maktoob Process",
-};
 
 const MaktoobTable = () => {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
 
-  // ** Get company data from navigation state OR URL parameters
-  const { company: companyFromState, fromCompany: fromCompanyState } = location.state || {};
+  // ** Get company data (LIKE CARTABLE)
+  const { company: companyFromState, fromCompany: fromCompanyState } =
+    location.state || {};
   const searchParams = new URLSearchParams(location.search);
-  const companyIdFromUrl = searchParams.get('companyId');
-  const companyNameFromUrl = searchParams.get('companyName');
-  
-  // ** Use state if available, otherwise use URL parameters
-  const company = companyFromState || (companyIdFromUrl ? {
-    id: parseInt(companyIdFromUrl),
-    company_name: decodeURIComponent(companyNameFromUrl || '')
-  } : null);
-  
+  const companyIdFromUrl = searchParams.get("companyId");
+  const companyNameFromUrl = searchParams.get("companyName");
+
+  const company =
+    companyFromState ||
+    (companyIdFromUrl
+      ? {
+          id: parseInt(companyIdFromUrl),
+          company_name: decodeURIComponent(companyNameFromUrl || ""),
+        }
+      : null);
+
   const fromCompany = fromCompanyState || !!companyIdFromUrl;
+
+  // ** Maktoob Type mapping with translation - MOVED TO useMemo
+  const maktoobTypeMap = useMemo(() => ({
+    "maktoob-contract": t("Maktoob Contract"),
+    "maktoob-tamded": t("Maktoob Tamded"),
+    "maktoob-khosh": t("Maktoob Sale"),
+    "maktoob-royality": t("Maktoob Royalty"),
+    "maktoob-baharbardry": t("Maktoob Baharbardry"),
+    "maktoob-paskha": t("Maktoob Paskha"),
+    "maktoob-process": t("Maktoob Process"),
+  }), [t]);
 
   // ** States
   const [searchMaktoobNumber, setSearchMaktoobNumber] = useState("");
@@ -83,13 +89,17 @@ const MaktoobTable = () => {
   const [searchSadirDate, setSearchSadirDate] = useState("");
   const [searchSource, setSearchSource] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
-  const [dateRange, setDateRange] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [maktoobs, setMaktoobs] = useState([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState([]);
   const [companies, setCompanies] = useState([]);
+  const [companiesMap, setCompaniesMap] = useState({});
+  const [totalMaktoobs, setTotalMaktoobs] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [existingMaktoobNumbers, setExistingMaktoobNumbers] = useState([]);
 
   // ** Modal States
   const [addMaktoobModal, setAddMaktoobModal] = useState(false);
@@ -98,83 +108,353 @@ const MaktoobTable = () => {
   const [selectedMaktoob, setSelectedMaktoob] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ** Fetch maktoobs from API
-  const fetchMaktoobs = async () => {
-    setLoading(true);
-    try {
-      let url = `${API_URL}/maktoob/`;
-      
-      const response = await axios.get(url);
-      
-      // Handle both formats: results array or direct array
-      let data = response.data.results || response.data;
-      data = Array.isArray(data) ? data : [];
+  // ** Get authentication token
+  const getAuthToken = () => {
+    return localStorage.getItem("access_token");
+  };
 
-      // ** CRITICAL: Filter by company ID if fromCompany is true
-      if (fromCompany && company) {
-        console.log("Filtering maktoobs for company ID:", company.id);
-        data = data.filter(maktoob => {
-          // Check different formats of company data
-          if (maktoob.company && typeof maktoob.company === 'object') {
-            return maktoob.company.id === company.id;
-          } else if (maktoob.company) {
-            return parseInt(maktoob.company) === parseInt(company.id);
+  // ** Configure axios headers
+  const getAxiosConfig = useCallback(() => {
+    const token = getAuthToken();
+    return token
+      ? {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      : {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        };
+  }, []);
+
+  // ** Fetch all companies and create mapping (LIKE CARTABLE)
+  const fetchCompanies = useCallback(async () => {
+    try {
+      console.log("Fetching companies...");
+      const config = getAxiosConfig();
+
+      let allCompanies = [];
+      let nextUrl = `${API_URL}/companies/`;
+
+      while (nextUrl) {
+        try {
+          const response = await axios.get(nextUrl, config);
+
+          let data = [];
+          if (response.data && response.data.results) {
+            data = response.data.results;
+            nextUrl = response.data.next;
+          } else if (Array.isArray(response.data)) {
+            data = response.data;
+            nextUrl = null;
+          } else {
+            data = [];
+            nextUrl = null;
           }
-          return false;
-        });
-        console.log("Filtered maktoobs count:", data.length);
+
+          allCompanies = [...allCompanies, ...data];
+
+          if (!response.data.next) {
+            break;
+          }
+        } catch (error) {
+          console.error("Error fetching companies page:", error);
+          break;
+        }
       }
 
-      setMaktoobs(data);
-      setFilteredData(data);
-      toast.success(`Loaded ${data.length} maktoobs for ${fromCompany ? company.company_name : 'all companies'}`);
-    } catch (error) {
-      console.error("Error fetching maktoobs:", error);
-      toast.error("Failed to load maktoobs");
-    } finally {
-      setLoading(false);
-    }
-  };
+      // Create a mapping of company ID to company name
+      const map = {};
+      allCompanies.forEach((company) => {
+        if (company && company.id) {
+          map[company.id] = company.company_name || `Company ${company.id}`;
+        }
+      });
 
-  // ** Fetch users for dropdown
-  const fetchUsers = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/users/`);
-      const data = response.data.results || response.data;
-      setUsers(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-      toast.error("Failed to load users");
-    }
-  };
-
-  // ** Fetch companies for dropdown
-  const fetchCompanies = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/companies/`);
-      const data = response.data.results || response.data;
-      setCompanies(Array.isArray(data) ? data : []);
+      setCompanies(allCompanies);
+      setCompaniesMap(map);
+      return map;
     } catch (error) {
       console.error("Error fetching companies:", error);
-      toast.error("Failed to load companies");
+      return {};
     }
-  };
+  }, [getAxiosConfig]);
 
-  // ** Initialize data
+  // ** Fetch all existing maktoob numbers for validation
+  const fetchAllMaktoobNumbers = useCallback(async () => {
+    try {
+      const config = getAxiosConfig();
+      let allMaktoobs = [];
+      let nextUrl = `${API_URL}/maktoobs/`;
+
+      while (nextUrl) {
+        try {
+          const response = await axios.get(nextUrl, config);
+
+          let data = [];
+          if (response.data && response.data.results) {
+            data = response.data.results;
+            nextUrl = response.data.next;
+          } else if (Array.isArray(response.data)) {
+            data = response.data;
+            nextUrl = null;
+          } else {
+            data = [];
+            nextUrl = null;
+          }
+
+          allMaktoobs = [...allMaktoobs, ...data];
+
+          if (!response.data.next) {
+            break;
+          }
+        } catch (error) {
+          console.error("Error fetching maktoobs page:", error);
+          break;
+        }
+      }
+
+      // Extract all maktoob numbers
+      const maktoobNumbers = allMaktoobs
+        .filter(m => m.maktoob_number)
+        .map(m => m.maktoob_number.toString());
+      
+      setExistingMaktoobNumbers(maktoobNumbers);
+      return maktoobNumbers;
+    } catch (error) {
+      console.error("Error fetching maktoob numbers:", error);
+      return [];
+    }
+  }, [getAxiosConfig]);
+
+  // ** Fetch users for dropdown
+  const fetchUsers = useCallback(async () => {
+    try {
+      const config = getAxiosConfig();
+
+      let allUsers = [];
+      let nextUrl = `${API_URL}/users/`;
+
+      while (nextUrl) {
+        try {
+          const response = await axios.get(nextUrl, config);
+
+          let data = [];
+          if (response.data && response.data.results) {
+            data = response.data.results;
+            nextUrl = response.data.next;
+          } else if (Array.isArray(response.data)) {
+            data = response.data;
+            nextUrl = null;
+          } else {
+            data = [];
+            nextUrl = null;
+          }
+
+          allUsers = [...allUsers, ...data];
+
+          if (!response.data.next) {
+            break;
+          }
+        } catch (error) {
+          console.error("Error fetching users page:", error);
+          break;
+        }
+      }
+
+      setUsers(allUsers);
+      return allUsers;
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      return [];
+    }
+  }, [getAxiosConfig]);
+
+  // ** Process maktoob data to extract company name (LIKE CARTABLE)
+  const processMaktoobData = useCallback((maktoob, companiesMapping) => {
+    if (!maktoob) return null;
+
+    // Process company name
+    let companyName = "N/A";
+    let companyId = null;
+
+    // Check for company field
+    if (maktoob.company) {
+      if (typeof maktoob.company === 'object' && maktoob.company.company_name) {
+        companyName = maktoob.company.company_name;
+        companyId = maktoob.company.id;
+      } else if (typeof maktoob.company === 'number' || typeof maktoob.company === 'string') {
+        companyId = parseInt(maktoob.company);
+        companyName = companiesMapping[companyId] || `Company ${companyId}`;
+      }
+    }
+
+    return {
+      ...maktoob,
+      company_display: companyName,
+      company_id: companyId,
+    };
+  }, []);
+
+  // ** Fetch maktoobs from API with pagination (LIKE CARTABLE)
+  const fetchMaktoobs = useCallback(
+    async (page = 1) => {
+      setLoading(true);
+      try {
+        const config = getAxiosConfig();
+
+        let url = `${API_URL}/maktoobs/?page=${page}&page_size=7`;
+
+        const response = await axios.get(url, config);
+
+        let data = [];
+        let total = 0;
+
+        if (response.data && response.data.results) {
+          // Paginated response
+          data = response.data.results;
+          total = response.data.count || data.length;
+        } else if (Array.isArray(response.data)) {
+          // Non-paginated response
+          data = response.data;
+          total = data.length;
+        } else {
+          data = [];
+          total = 0;
+        }
+
+        // Process maktoobs to add company name and ID
+        const processedData = data
+          .map((maktoob) => processMaktoobData(maktoob, companiesMap))
+          .filter(Boolean);
+
+        // Filter by company if needed (client-side filtering LIKE CARTABLE)
+        let finalData = processedData;
+        let finalTotal = total;
+        
+        if (fromCompany && company) {
+          finalData = processedData.filter((maktoob) => {
+            if (!maktoob.company_id) {
+              return false;
+            }
+            return maktoob.company_id === company.id;
+          });
+          
+          finalTotal = finalData.length;
+        }
+
+        setMaktoobs(finalData);
+        setFilteredData(finalData);
+        setTotalMaktoobs(finalTotal);
+        setTotalPages(Math.ceil(finalTotal / 7));
+      } catch (error) {
+        console.error("Error fetching maktoobs:", error);
+
+        if (error.response?.status === 401) {
+          toast.error(t("Please login first"));
+        } else if (error.response?.status === 404) {
+          // Endpoint not found, try alternative
+          try {
+            const altUrl = `${API_URL}/maktoob/?page=${page}&page_size=7`;
+            const altResponse = await axios.get(altUrl, getAxiosConfig());
+
+            let altData = [];
+            let altTotal = 0;
+
+            if (altResponse.data && altResponse.data.results) {
+              altData = altResponse.data.results;
+              altTotal = altResponse.data.count || altData.length;
+            } else if (Array.isArray(altResponse.data)) {
+              altData = altResponse.data;
+              altTotal = altData.length;
+            }
+
+            // Process the alternative data
+            const processedAltData = altData
+              .map((maktoob) => processMaktoobData(maktoob, companiesMap))
+              .filter(Boolean);
+
+            let finalAltData = processedAltData;
+            let finalAltTotal = altTotal;
+            
+            if (fromCompany && company) {
+              finalAltData = processedAltData.filter((maktoob) => {
+                if (!maktoob.company_id) return false;
+                return maktoob.company_id === company.id;
+              });
+              finalAltTotal = finalAltData.length;
+            }
+
+            setMaktoobs(finalAltData);
+            setFilteredData(finalAltData);
+            setTotalMaktoobs(finalAltTotal);
+            setTotalPages(Math.ceil(finalAltTotal / 7));
+          } catch (altError) {
+            console.error("Error fetching from alternative endpoint:", altError);
+            toast.error(t("Failed to load maktoobs"));
+            setMaktoobs([]);
+            setFilteredData([]);
+            setTotalMaktoobs(0);
+            setTotalPages(0);
+          }
+        } else {
+          toast.error(t("Failed to load maktoobs"));
+          setMaktoobs([]);
+          setFilteredData([]);
+          setTotalMaktoobs(0);
+          setTotalPages(0);
+        }
+      } finally {
+        setLoading(false);
+        setDataLoaded(true);
+      }
+    },
+    [company, fromCompany, companiesMap, processMaktoobData, t, getAxiosConfig],
+  );
+
+  // ** Initialize data (LIKE CARTABLE)
   useEffect(() => {
-    console.log("MaktoobTable mounted with:", { fromCompany, company });
-    fetchMaktoobs();
-    fetchUsers();
-    fetchCompanies();
-  }, [company, fromCompany]);
+    const loadInitialData = async () => {
+      setLoading(true);
+      try {
+        // Fetch companies first and wait for completion
+        const companiesMapResult = await fetchCompanies();
+        
+        // Fetch users
+        await fetchUsers();
+        
+        // Fetch all existing maktoob numbers for validation
+        await fetchAllMaktoobNumbers();
+        
+        // Now fetch maktoobs with current page
+        await fetchMaktoobs(currentPage + 1);
+      } catch (error) {
+        console.error("Error loading initial data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  // ** Apply filters when search criteria change
+    loadInitialData();
+  }, []); // Empty dependency array to run only once on mount
+
+  // ** Fetch maktoobs when page changes
+  useEffect(() => {
+    if (dataLoaded) {
+      fetchMaktoobs(currentPage + 1);
+    }
+  }, [currentPage, fetchMaktoobs, dataLoaded]);
+
+  // ** Apply filters when search criteria change - CLIENT SIDE FILTERING (LIKE CARTABLE)
   useEffect(() => {
     let data = maktoobs;
 
     if (searchMaktoobNumber) {
       data = data.filter((m) =>
-        m.maktoob_number.toString().includes(searchMaktoobNumber)
+        m.maktoob_number?.toString().includes(searchMaktoobNumber),
       );
     }
 
@@ -182,30 +462,25 @@ const MaktoobTable = () => {
       data = data.filter((m) => m.maktoob_type === searchMaktoobType);
     }
 
+    // Only show company filter if not in company view (LIKE CARTABLE)
     if (searchCompanyName && !fromCompany) {
       data = data.filter((m) =>
-        m.company?.company_name?.toLowerCase().includes(searchCompanyName.toLowerCase())
+        (m.company_display || "")
+          .toLowerCase()
+          .includes(searchCompanyName.toLowerCase()),
       );
     }
 
     if (searchSadirDate) {
-      data = data.filter((m) => 
-        m.sadir_date && m.sadir_date.includes(searchSadirDate)
+      data = data.filter(
+        (m) => m.sadir_date && m.sadir_date.includes(searchSadirDate),
       );
     }
 
     if (searchSource) {
       data = data.filter((m) =>
-        m.source?.toLowerCase().includes(searchSource.toLowerCase())
+        (m.source || "").toLowerCase().includes(searchSource.toLowerCase()),
       );
-    }
-
-    if (dateRange.length === 2) {
-      const [start, end] = dateRange;
-      data = data.filter((m) => {
-        const createDate = new Date(m.create_at);
-        return createDate >= start && createDate <= end;
-      });
     }
 
     setFilteredData(data);
@@ -215,11 +490,11 @@ const MaktoobTable = () => {
     searchCompanyName,
     searchSadirDate,
     searchSource,
-    dateRange,
     maktoobs,
+    fromCompany,
   ]);
 
-  // ** Handle Back Button Click
+  // ** Handle Back Button Click (LIKE CARTABLE)
   const handleBackClick = () => {
     navigate(-1);
   };
@@ -234,7 +509,6 @@ const MaktoobTable = () => {
     setSearchCompanyName("");
     setSearchSadirDate("");
     setSearchSource("");
-    setDateRange([]);
   };
 
   // ** Handle Edit Click
@@ -250,64 +524,88 @@ const MaktoobTable = () => {
     setDeleteModal(true);
   };
 
-  // ** Table columns configuration based on Django model
-  const columns = [
+  // ** Check if maktoob number already exists
+  const isMaktoobNumberUnique = useCallback((maktoobNumber, currentMaktoobId = null) => {
+    const numberStr = maktoobNumber.toString();
+    
+    // Check if this number already exists in the database
+    if (existingMaktoobNumbers.includes(numberStr)) {
+      // If we're editing, allow the same number for the current maktoob
+      if (currentMaktoobId) {
+        const existingMaktoob = maktoobs.find(m => 
+          m.maktoob_number && m.maktoob_number.toString() === numberStr
+        );
+        // Allow if it's the same maktoob being edited
+        if (existingMaktoob && existingMaktoob.id === currentMaktoobId) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return true;
+  }, [existingMaktoobNumbers, maktoobs]);
+
+  // ** Table columns configuration (LIKE CARTABLE)
+  const columns = useMemo(() => [
     {
-      name: t("id") || "ID",
+      name: t("ID"),
       selector: (row) => row.id,
       sortable: true,
       width: "70px",
     },
     {
-      name: t("maktoob_type") || "Maktoob Type",
-      selector: (row) => maktoobTypeMap[row.maktoob_type] || row.maktoob_type,
+      name: t("Maktoob Type"),
+      selector: (row) =>
+        maktoobTypeMap[row.maktoob_type] || row.maktoob_type || "N/A",
       sortable: true,
       minWidth: "150px",
     },
     {
-      name: t("maktoob_number") || "Maktoob Number",
-      selector: (row) => row.maktoob_number,
+      name: t("Maktoob Number"),
+      selector: (row) => row.maktoob_number || "N/A",
       sortable: true,
       minWidth: "120px",
     },
     {
-      name: t("sadir_date") || "Sadir Date",
-      selector: (row) => row.sadir_date ? new Date(row.sadir_date).toLocaleDateString() : "N/A",
+      name: t("Sadir Date"),
+      selector: (row) =>
+        row.sadir_date ? gregorianToShamsi(row.sadir_date) : "N/A",
       sortable: true,
       minWidth: "120px",
     },
     {
-      name: t("source") || "Source",
+      name: t("Source"),
       selector: (row) => row.source || "N/A",
       sortable: true,
       minWidth: "150px",
     },
     {
-      name: t("start_date") || "Start Date",
-      selector: (row) => row.start_date ? new Date(row.start_date).toLocaleDateString() : "N/A",
+      name: t("Start Date"),
+      selector: (row) =>
+        row.start_date ? gregorianToShamsi(row.start_date) : "N/A",
       sortable: true,
       minWidth: "120px",
     },
     {
-      name: t("end_date") || "End Date",
-      selector: (row) => row.end_date ? new Date(row.end_date).toLocaleDateString() : "N/A",
+      name: t("End Date"),
+      selector: (row) =>
+        row.end_date ? gregorianToShamsi(row.end_date) : "N/A",
       sortable: true,
       minWidth: "120px",
     },
+    // Only show Company column if not in company view (LIKE CARTABLE)
+    ...(!fromCompany
+      ? [
+          {
+            name: t("Company"),
+            selector: (row) => row.company_display || "N/A",
+            sortable: true,
+            minWidth: "180px",
+          },
+        ]
+      : []),
     {
-      name: t("company") || "Company",
-      selector: (row) => row.company?.company_name || "N/A",
-      sortable: true,
-      minWidth: "180px",
-    },
-    {
-      name: t("user") || "User",
-      selector: (row) => row.user?.username || "N/A",
-      sortable: true,
-      minWidth: "120px",
-    },
-    {
-      name: t("description") || "Description",
+      name: t("Description"),
       selector: (row) => row.description || "-",
       sortable: true,
       minWidth: "200px",
@@ -324,13 +622,7 @@ const MaktoobTable = () => {
       ),
     },
     {
-      name: t("created_at") || "Created At",
-      selector: (row) => row.create_at ? new Date(row.create_at).toLocaleDateString() : "N/A",
-      sortable: true,
-      minWidth: "120px",
-    },
-    {
-      name: t("actions") || "Actions",
+      name: t("Actions"),
       cell: (row) => (
         <div className="d-flex">
           <Button
@@ -338,6 +630,7 @@ const MaktoobTable = () => {
             size="sm"
             className="me-1"
             onClick={() => handleEdit(row)}
+            title={t("Edit")}
           >
             <Edit size={14} />
           </Button>
@@ -345,6 +638,7 @@ const MaktoobTable = () => {
             color="danger"
             size="sm"
             onClick={() => handleDeleteClick(row.id)}
+            title={t("Delete")}
           >
             <Trash2 size={14} />
           </Button>
@@ -352,88 +646,150 @@ const MaktoobTable = () => {
       ),
       width: "100px",
     },
-  ];
+  ], [t, maktoobTypeMap, fromCompany]);
 
-  // ** Function to handle Pagination
-  const handlePagination = (page) => setCurrentPage(page.selected);
+  // ** Function to handle Pagination (LIKE CARTABLE)
+  const handlePagination = (page) => {
+    const newPage = page.selected;
+    setCurrentPage(newPage);
+  };
 
-  // ** Custom Pagination
-  const CustomPagination = () => (
-    <ReactPaginate
-      previousLabel={""}
-      nextLabel={""}
-      forcePage={currentPage}
-      onPageChange={handlePagination}
-      pageCount={Math.ceil(filteredData.length / 7) || 1}
-      breakLabel={"..."}
-      pageRangeDisplayed={2}
-      marginPagesDisplayed={2}
-      activeClassName="active"
-      pageClassName="page-item"
-      breakClassName="page-item"
-      nextLinkClassName="page-link"
-      pageLinkClassName="page-link"
-      breakLinkClassName="page-link"
-      previousLinkClassName="page-link"
-      nextClassName="page-item next-item"
-      previousClassName="page-item prev-item"
-      containerClassName={
-        "pagination react-paginate separated-pagination pagination-sm justify-content-end pe-1 mt-1"
-      }
-    />
-  );
+  // ** Custom Pagination (LIKE CARTABLE)
+  const CustomPagination = () => {
+    const pageCount = totalPages || Math.ceil(totalMaktoobs / 7);
+
+    if (pageCount <= 1) return null;
+
+    return (
+      <ReactPaginate
+        previousLabel={""}
+        nextLabel={""}
+        forcePage={currentPage}
+        onPageChange={handlePagination}
+        pageCount={pageCount}
+        breakLabel={"..."}
+        pageRangeDisplayed={2}
+        marginPagesDisplayed={2}
+        activeClassName="active"
+        pageClassName="page-item"
+        breakClassName="page-item"
+        nextLinkClassName="page-link"
+        pageLinkClassName="page-link"
+        breakLinkClassName="page-link"
+        previousLinkClassName="page-link"
+        nextClassName="page-item next-item"
+        previousClassName="page-item prev-item"
+        containerClassName={
+          "pagination react-paginate separated-pagination pagination-sm justify-content-end pe-1 mt-1"
+        }
+      />
+    );
+  };
 
   // ** Handle Delete Confirmation
   const handleDeleteConfirm = async () => {
     if (selectedMaktoob) {
       try {
-        await axios.delete(`${API_URL}/maktoob/${selectedMaktoob.id}/`);
-        toast.success("Maktoob deleted successfully!");
-        fetchMaktoobs(); // Refresh the list
+        const config = getAxiosConfig();
+        await axios.delete(
+          `${API_URL}/maktoobs/${selectedMaktoob.id}/`,
+          config,
+        );
+        toast.success(t("Maktoob deleted successfully!"));
+        
+        // Update the existing maktoob numbers list
+        setExistingMaktoobNumbers(prev => 
+          prev.filter(num => num !== selectedMaktoob.maktoob_number?.toString())
+        );
+        
+        // Update state immediately (LIKE CARTABLE)
+        setMaktoobs((prev) => prev.filter((m) => m.id !== selectedMaktoob.id));
+        setFilteredData((prev) => prev.filter((m) => m.id !== selectedMaktoob.id));
+        setTotalMaktoobs(prev => prev - 1);
+        
         setDeleteModal(false);
         setSelectedMaktoob(null);
       } catch (error) {
         console.error("Error deleting maktoob:", error);
-        toast.error(error.response?.data?.detail || "Failed to delete maktoob");
+        toast.error(t("Failed to delete maktoob"));
       }
     }
   };
 
-  // ** Handle Add Maktoob Submission
+  // ** Handle Add Maktoob Submission - Auto-assign company if in company view (LIKE CARTABLE)
   const handleAddMaktoobSubmit = async (maktoobData) => {
     setIsSubmitting(true);
-    
+
     try {
-      // Format data for Django backend - only fields from the model
+      // Validate maktoob number uniqueness
+      if (!isMaktoobNumberUnique(maktoobData.maktoob_number)) {
+        toast.error(t("This Maktoob Number already exists. Please use a different number."));
+        setIsSubmitting(false);
+        return;
+      }
+
       const formattedData = {
         maktoob_type: maktoobData.maktoob_type,
-        maktoob_number: parseInt(maktoobData.maktoob_number),
+        maktoob_number: parseInt(maktoobData.maktoob_number) || 0,
         sadir_date: maktoobData.sadir_date,
         source: maktoobData.source,
         start_date: maktoobData.start_date,
         end_date: maktoobData.end_date,
         description: maktoobData.description,
-        company: fromCompany ? company.id : maktoobData.company,
-        user: maktoobData.user,
+        user: maktoobData.user || null,
       };
 
-      const response = await axios.post(`${API_URL}/maktoob/`, formattedData);
-      
+      // If in company view, auto-set the company (LIKE CARTABLE)
+      if (fromCompany && company) {
+        formattedData.company = company.id;
+      } else if (maktoobData.company && maktoobData.company !== "") {
+        formattedData.company = parseInt(maktoobData.company);
+      }
+
+      const config = getAxiosConfig();
+      const response = await axios.post(
+        `${API_URL}/maktoobs/`,
+        formattedData,
+        config,
+      );
+
       if (response.status === 201) {
-        toast.success("Maktoob added successfully!");
+        // Add the new maktoob number to existing numbers list
+        setExistingMaktoobNumbers(prev => [...prev, maktoobData.maktoob_number.toString()]);
+        
+        toast.success(t("Maktoob added successfully!"));
         setAddMaktoobModal(false);
-        fetchMaktoobs(); // Refresh the list
+        // Reset to first page when adding new maktoob (LIKE CARTABLE)
+        setCurrentPage(0);
+        fetchMaktoobs(1);
       }
     } catch (error) {
-      console.error("Error adding maktoob:", error);
       const errorMsg = error.response?.data;
-      if (typeof errorMsg === 'object') {
-        // Display all validation errors
-        Object.keys(errorMsg).forEach(key => {
-          toast.error(`${key}: ${errorMsg[key]}`);
-        });
+      if (error.response?.status === 400) {
+        // Check if the error is about duplicate maktoob number
+        if (errorMsg && typeof errorMsg === 'object') {
+          if (errorMsg.maktoob_number && 
+              errorMsg.maktoob_number.includes('already exists')) {
+            toast.error(t("This Maktoob Number already exists. Please use a different number."));
+          } else {
+            // Handle other validation errors
+            Object.keys(errorMsg).forEach((key) => {
+              if (Array.isArray(errorMsg[key])) {
+                errorMsg[key].forEach((msg) => {
+                  toast.error(`${key}: ${msg}`);
+                });
+              } else {
+                toast.error(`${key}: ${errorMsg[key]}`);
+              }
+            });
+          }
+        } else {
+          toast.error(t("Invalid data. Please check all fields."));
+        }
+      } else if (error.response?.status === 401) {
+        toast.error(t("Authentication required. Please login."));
       } else {
-        toast.error(errorMsg || "Failed to add maktoob");
+        toast.error(errorMsg || t("Failed to add maktoob"));
       }
     } finally {
       setIsSubmitting(false);
@@ -443,41 +799,83 @@ const MaktoobTable = () => {
   // ** Handle Edit Maktoob Submission
   const handleEditMaktoobSubmit = async (maktoobData) => {
     setIsSubmitting(true);
-    
+
     try {
-      // Format data for Django backend - only fields from the model
+      // Validate maktoob number uniqueness for edits
+      if (!isMaktoobNumberUnique(maktoobData.maktoob_number, selectedMaktoob?.id)) {
+        toast.error(t("This Maktoob Number already exists. Please use a different number."));
+        setIsSubmitting(false);
+        return;
+      }
+
       const formattedData = {
         maktoob_type: maktoobData.maktoob_type,
-        maktoob_number: parseInt(maktoobData.maktoob_number),
+        maktoob_number: parseInt(maktoobData.maktoob_number) || 0,
         sadir_date: maktoobData.sadir_date,
         source: maktoobData.source,
         start_date: maktoobData.start_date,
         end_date: maktoobData.end_date,
         description: maktoobData.description,
-        company: fromCompany ? company.id : maktoobData.company,
-        user: maktoobData.user,
+        user: maktoobData.user || null,
       };
 
+      // Add company field - Auto-assign if in company view
+      if (fromCompany && company) {
+        formattedData.company = company.id;
+      } else if (maktoobData.company !== undefined && maktoobData.company !== "") {
+        formattedData.company = maktoobData.company ? parseInt(maktoobData.company) : null;
+      } else {
+        formattedData.company = null;
+      }
+
+      const config = getAxiosConfig();
       const response = await axios.put(
-        `${API_URL}/maktoob/${selectedMaktoob.id}/`,
-        formattedData
+        `${API_URL}/maktoobs/${selectedMaktoob.id}/`,
+        formattedData,
+        config,
       );
-      
+
       if (response.status === 200) {
-        toast.success("Maktoob updated successfully!");
+        // Update the existing maktoob numbers list
+        if (selectedMaktoob.maktoob_number !== parseInt(maktoobData.maktoob_number)) {
+          // Remove old number and add new one
+          setExistingMaktoobNumbers(prev => 
+            prev.filter(num => num !== selectedMaktoob.maktoob_number?.toString())
+          );
+          setExistingMaktoobNumbers(prev => [...prev, maktoobData.maktoob_number.toString()]);
+        }
+        
+        toast.success(t("Maktoob updated successfully!"));
         setEditMaktoobModal(false);
         setSelectedMaktoob(null);
-        fetchMaktoobs(); // Refresh the list
+        fetchMaktoobs(currentPage + 1);
       }
     } catch (error) {
       console.error("Error updating maktoob:", error);
-      const errorMsg = error.response?.data;
-      if (typeof errorMsg === 'object') {
-        Object.keys(errorMsg).forEach(key => {
-          toast.error(`${key}: ${errorMsg[key]}`);
-        });
+      
+      if (error.response?.status === 400) {
+        const errorData = error.response.data;
+        // Check for duplicate maktoob number
+        if (errorData.maktoob_number && 
+            errorData.maktoob_number.includes('already exists')) {
+          toast.error(t("This Maktoob Number already exists. Please use a different number."));
+        } else {
+          Object.keys(errorData).forEach((key) => {
+            if (Array.isArray(errorData[key])) {
+              errorData[key].forEach((msg) => {
+                toast.error(`${key}: ${msg}`);
+              });
+            } else {
+              toast.error(`${key}: ${errorData[key]}`);
+            }
+          });
+        }
+      } else if (error.response?.status === 401) {
+        toast.error(t("Authentication required. Please login."));
       } else {
-        toast.error(errorMsg || "Failed to update maktoob");
+        toast.error(
+          error.response?.data?.message || t("Failed to update maktoob"),
+        );
       }
     } finally {
       setIsSubmitting(false);
@@ -500,13 +898,12 @@ const MaktoobTable = () => {
 
   return (
     <Fragment>
-      <ToastContainer position="top-right" autoClose={3000} />
-      
+      <ToastContainer position="top-left" autoClose={3000} />
+
       <Card>
         <CardHeader className="border-bottom">
           <div className="d-flex justify-content-between align-items-center">
             <div className="d-flex align-items-center">
-              {/* Back Button - Only show when coming from company */}
               {fromCompany && (
                 <Button
                   color="secondary"
@@ -514,20 +911,21 @@ const MaktoobTable = () => {
                   className="me-2 d-flex align-items-center"
                 >
                   <ArrowLeft size={14} className="me-50" />
-                  {t("back") || "Back"}
+                  {t("Back")}
                 </Button>
               )}
               <CardTitle tag="h4" className="mb-0">
                 {fromCompany && company
-                  ? `${t("maktoob_management") || "Maktoob Management"} - ${
-                      company.company_name
-                    }`
-                  : t("maktoob_management") || "Maktoob Management"}
+                  ? `${t("Maktoob Management")} - ${company.company_name}`
+                  : t("Maktoob Management")}
                 {fromCompany && company && (
                   <Badge color="primary" className="ms-2">
-                    {t("company_view") || "Company View"}
+                    {t("Company View")}
                   </Badge>
                 )}
+                <Badge color="dark" className="ms-2 m-1 p-1">
+                  {totalMaktoobs} {t("Maktoobs")}
+                </Badge>
               </CardTitle>
             </div>
             <div className="d-flex gap-1">
@@ -537,7 +935,7 @@ const MaktoobTable = () => {
                 className="d-flex align-items-center"
               >
                 <Filter size={14} className="me-50" />
-                {t("filter") || "Filter"}
+                {t("Filter")}
                 {filterOpen && <X size={14} className="ms-50" />}
               </Button>
               <Button
@@ -546,26 +944,24 @@ const MaktoobTable = () => {
                 className="d-flex align-items-center"
               >
                 <Plus size={14} className="me-50" />
-                {t("add_maktoob") || "Add Maktoob"}
+                {t("Add Maktoob")}
               </Button>
             </div>
           </div>
         </CardHeader>
 
-        {/* Filter Section */}
+        {/* Filter Section (LIKE CARTABLE layout) */}
         <Collapse isOpen={filterOpen}>
           <CardBody className="pt-0">
             <Row className="mt-1 mb-50">
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="maktoobNumber">
-                  {t("maktoob_number") || "Maktoob Number"}:
+                  {t("Maktoob Number")}:
                 </Label>
                 <Input
                   id="maktoobNumber"
                   type="number"
-                  placeholder={
-                    t("filter_by_maktoob_number") || "Filter by Maktoob Number"
-                  }
+                  placeholder={t("Filter by maktoob number")}
                   value={searchMaktoobNumber}
                   onChange={(e) => setSearchMaktoobNumber(e.target.value)}
                 />
@@ -573,7 +969,7 @@ const MaktoobTable = () => {
 
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="maktoobType">
-                  {t("maktoob_type") || "Maktoob Type"}:
+                  {t("Maktoob Type")}:
                 </Label>
                 <Input
                   type="select"
@@ -581,7 +977,7 @@ const MaktoobTable = () => {
                   value={searchMaktoobType}
                   onChange={(e) => setSearchMaktoobType(e.target.value)}
                 >
-                  <option value="">{t("all_types") || "All Types"}</option>
+                  <option value="">{t("All Types")}</option>
                   {Object.entries(maktoobTypeMap).map(([key, value]) => (
                     <option key={key} value={key}>
                       {value}
@@ -590,17 +986,15 @@ const MaktoobTable = () => {
                 </Input>
               </Col>
 
-              {/* Hide company filter when viewing specific company's maktoobs */}
+              {/* Only show company filter if not in company view (LIKE CARTABLE) */}
               {!fromCompany && (
                 <Col lg="3" md="6" className="mb-1">
                   <Label className="form-label" htmlFor="companyName">
-                    {t("company_name") || "Company Name"}:
+                    {t("Company Name")}:
                   </Label>
                   <Input
                     id="companyName"
-                    placeholder={
-                      t("filter_by_company_name") || "Filter by Company Name"
-                    }
+                    placeholder={t("Filter by company name")}
                     value={searchCompanyName}
                     onChange={(e) => setSearchCompanyName(e.target.value)}
                   />
@@ -609,7 +1003,7 @@ const MaktoobTable = () => {
 
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="sadirDate">
-                  {t("sadir_date") || "Sadir Date"}:
+                  {t("Sadir Date")}:
                 </Label>
                 <Input
                   type="date"
@@ -621,26 +1015,13 @@ const MaktoobTable = () => {
 
               <Col lg="3" md="6" className="mb-1">
                 <Label className="form-label" htmlFor="source">
-                  {t("source") || "Source"}:
+                  {t("Source")}:
                 </Label>
                 <Input
                   id="source"
-                  placeholder={t("filter_by_source") || "Filter by Source"}
+                  placeholder={t("Filter by source")}
                   value={searchSource}
                   onChange={(e) => setSearchSource(e.target.value)}
-                />
-              </Col>
-
-              <Col lg="3" md="6" className="mb-1">
-                <Label className="form-label" htmlFor="date">
-                  {t("created_date") || "Created Date"}:
-                </Label>
-                <Flatpickr
-                  className="form-control"
-                  id="date"
-                  value={dateRange}
-                  options={{ mode: "range", dateFormat: "Y-m-d" }}
-                  onChange={(date) => setDateRange(date)}
                 />
               </Col>
 
@@ -653,22 +1034,43 @@ const MaktoobTable = () => {
                   onClick={clearFilters}
                   className="me-1"
                 >
-                  {t("clear_filters") || "Clear Filters"}
-                </Button>
-                <Button color="primary" onClick={() => {}}>
-                  {t("apply_filters") || "Apply Filters"}
+                  {t("Clear Filters")}
                 </Button>
               </Col>
             </Row>
           </CardBody>
         </Collapse>
 
-        {/* Data Table */}
+        {/* Data Table (LIKE CARTABLE behavior) */}
         <CardBody>
-          {loading ? (
+          {loading && !dataLoaded ? (
             <div className="text-center py-5">
               <Spinner color="primary" />
-              <p className="mt-2">Loading maktoobs...</p>
+              <p className="mt-2">{t("Loading maktoobs...")}</p>
+            </div>
+          ) : filteredData.length === 0 && maktoobs.length === 0 ? (
+            <div className="text-center py-5">
+              <h5>
+                {fromCompany && company
+                  ? t(`No maktoobs found for ${company.company_name}`)
+                  : t("No maktoobs found")}
+              </h5>
+              <p className="text-muted">
+                {fromCompany && company
+                  ? t(`No maktoobs recorded for ${company.company_name} yet. Add the first maktoob!`)
+                  : ""}
+              </p>
+            </div>
+          ) : filteredData.length === 0 ? (
+            <div className="text-center py-5">
+              <Database size={48} className="text-muted mb-3" />
+              <h5>{t("No maktoobs match your filters")}</h5>
+              <p className="text-muted">
+                {t("Try clearing filters or adjust your search criteria.")}
+              </p>
+              <Button color="secondary" onClick={clearFilters}>
+                {t("Clear Filters")}
+              </Button>
             </div>
           ) : (
             <div className="react-dataTable">
@@ -688,71 +1090,90 @@ const MaktoobTable = () => {
         </CardBody>
       </Card>
 
-      {/* Add Maktoob Modal */}
+      {/* Add Maktoob Modal (LIKE CARTABLE) */}
       <Modal isOpen={addMaktoobModal} toggle={closeModals} size="lg">
         <ModalHeader toggle={closeModals}>
-          {t("add_new_maktoob") || "Add New Maktoob"}
+          {t("Add New Maktoob")}
           {fromCompany && company && ` - ${company.company_name}`}
         </ModalHeader>
         <ModalBody>
-          <MaktoobInfo
-            onSuccess={handleAddMaktoobSubmit}
-            onCancel={closeModals}
-            selectedCompany={fromCompany ? company : null}
-            loading={isSubmitting}
-            isEdit={false}
-            users={users}
-            companies={companies}
-          />
+          {loading ? (
+            <div className="text-center py-4">
+              <Spinner color="primary" />
+              <p className="mt-2">{t("Loading form data...")}</p>
+            </div>
+          ) : (
+            <MaktoobInfo
+              onSuccess={handleAddMaktoobSubmit}
+              onCancel={closeModals}
+              selectedCompany={fromCompany ? company : null}
+              loading={isSubmitting}
+              isEdit={false}
+              users={users}
+              companies={companies}
+              existingMaktoobNumbers={existingMaktoobNumbers}
+            />
+          )}
         </ModalBody>
       </Modal>
 
       {/* Edit Maktoob Modal */}
       <Modal isOpen={editMaktoobModal} toggle={closeModals} size="lg">
         <ModalHeader toggle={closeModals}>
-          {t("edit_maktoob") || "Edit Maktoob"} - {selectedMaktoob?.maktoob_number}
+          {t("Edit Maktoob")} - {selectedMaktoob?.maktoob_number}
         </ModalHeader>
         <ModalBody>
-          <MaktoobInfo
-            onSuccess={handleEditMaktoobSubmit}
-            onCancel={closeModals}
-            initialData={selectedMaktoob}
-            loading={isSubmitting}
-            isEdit={true}
-            users={users}
-            companies={companies}
-          />
+          {loading ? (
+            <div className="text-center py-4">
+              <Spinner color="primary" />
+              <p className="mt-2">{t("Loading form data...")}</p>
+            </div>
+          ) : (
+            <MaktoobInfo
+              onSuccess={handleEditMaktoobSubmit}
+              onCancel={closeModals}
+              initialData={selectedMaktoob}
+              loading={isSubmitting}
+              isEdit={true}
+              users={users}
+              companies={companies}
+              existingMaktoobNumbers={existingMaktoobNumbers}
+            />
+          )}
         </ModalBody>
       </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal isOpen={deleteModal} toggle={closeModals}>
-        <ModalHeader toggle={closeModals}>
-          {t("delete_maktoob") || "Delete Maktoob"}
-        </ModalHeader>
+        <ModalHeader toggle={closeModals}>{t("Delete Maktoob")}</ModalHeader>
         <ModalBody>
           <p>
-            {t("delete_maktoob_confirmation") ||
-              "Are you sure you want to delete this maktoob?"}
+            {t(
+              "Are you sure you want to delete this maktoob? This action cannot be undone.",
+            )}
           </p>
           {selectedMaktoob && (
             <div className="mt-2">
-              <strong>Maktoob #{selectedMaktoob.maktoob_number}</strong>
+              <strong>
+                {t("Maktoob")} #{selectedMaktoob.maktoob_number}
+              </strong>
               <br />
               <small className="text-muted">
-                Type: {maktoobTypeMap[selectedMaktoob.maktoob_type] || selectedMaktoob.maktoob_type} | 
-                Company: {selectedMaktoob.company?.company_name || "N/A"}
+                {t("Type:")}{" "}
+                {maktoobTypeMap[selectedMaktoob.maktoob_type] ||
+                  selectedMaktoob.maktoob_type}{" "}
+                |{t("Company:")} {selectedMaktoob.company_display || "N/A"}
               </small>
             </div>
           )}
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" onClick={closeModals}>
-            {t("cancel") || "Cancel"}
+            {t("Cancel")}
           </Button>
           <Button color="danger" onClick={handleDeleteConfirm}>
             <Trash2 size={14} className="me-50" />
-            {t("delete") || "Delete"}
+            {t("Delete")}
           </Button>
         </ModalFooter>
       </Modal>
